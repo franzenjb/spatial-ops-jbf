@@ -1,0 +1,1980 @@
+// ── Config ──────────────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://qoskpyfgimjcmmxunfji.supabase.co";
+const ANON_KEY     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvc2tweWZnaW1qY21teHVuZmppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMjY0MzAsImV4cCI6MjA5MDcwMjQzMH0.oTa6xhNAQ8eW_Bur-uKvBPBpWkPD2SpaahgcSFysVPY";
+const HEADERS      = { "apikey": ANON_KEY, "Authorization": `Bearer ${ANON_KEY}` };
+const PARCEL_API   = "https://florida-parcels-production.up.railway.app";
+
+// ── Basemap styles (free) ─────────────────────────────────────────────────
+const BASEMAPS = [
+  { name: "Streets",    url: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json" },
+  { name: "Dark",       url: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" },
+  { name: "Light",      url: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json" },
+  { name: "OSM Liberty", url: "https://tiles.openfreemap.org/styles/liberty" },
+];
+var _bmIdx = 0;
+
+// ── Supabase helpers ────────────────────────────────────────────────────────
+function buildSupabaseParams(filters, order, limit, select) {
+  let params = `select=${select || "*"}`;
+  for (const [k, v] of Object.entries(filters || {})) {
+    if (v == null) continue;
+    const vStr = String(v);
+    const opMatch = vStr.match(/^(eq|gt|gte|lt|lte)\.(.+)$/);
+    if (opMatch) {
+      params += `&${k}=${opMatch[1]}.${encodeURIComponent(opMatch[2])}`;
+    } else if (vStr) {
+      params += `&${k}=eq.${encodeURIComponent(vStr)}`;
+    }
+  }
+  if (order) params += `&order=${order}`;
+  params += `&limit=${limit || 20}`;
+  return params;
+}
+
+async function sbFetch(table, params = "") {
+  const headers = { ...HEADERS, "Prefer": "count=none" };
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, { headers });
+  if (!resp.ok) throw new Error(`${table}: HTTP ${resp.status}`);
+  return resp.json();
+}
+window._sbFetch = sbFetch;
+
+async function sbFetchAll(table, selectParams) {
+  const PAGE_SIZE = 1000;
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const page = await sbFetch(table, `${selectParams}&limit=${PAGE_SIZE}&offset=${offset}`);
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return all;
+}
+
+// ── Schema prompt for AI query ──────────────────────────────────────────────
+function getSchemaPrompt() {
+  const st = window._currentState || { abbr: "FL", name: "Florida" };
+  return `You are a query assistant for a Red Cross disaster response map. The user is currently viewing ${st.name} (${st.abbr}).
+
+Tables (ONLY these columns exist — do NOT use any column not listed here):
+- home_fires: fire_id, date, address, city, zip_code, state_abbr, lat, lon, damage_level ("minor"/"major"/"destroyed"), elderly_present ("yes"/"no"), rc_responded ("yes"/"no"), geoid, chapter, region
+- shelters: shelter_id, name, zip_code, state_abbr, lat, lon, capacity (integer), current_occupancy (integer), status ("open"/"full"/"closed"), in_flood_zone ("yes"/"no"), geoid, chapter (NOTE: shelters has NO city column)
+- dat_volunteers: volunteer_id, name, zip_code, state_abbr, lat, lon, certified ("yes"/"no"), availability ("available"/"deployed"/"inactive"), geoid, chapter
+- svi: fips (11-digit tract FIPS), st_abbr, county (includes "County" suffix), location, area_sqmi, rpl_themes (0–1, higher=worse), rpl_theme1 (socioeconomic), rpl_theme2 (household composition), rpl_theme3 (racial/ethnic minority), rpl_theme4 (housing/transport), e_totpop, e_hu, e_hh, e_pov150, e_unemp, e_hburd, e_nohsdp, e_uninsur, e_age65, e_age17, e_disabl, e_sngpnt, e_limeng, e_minrty, e_munit, e_mobile, e_crowd, e_noveh, e_groupq, e_daypop, e_noint, e_afam, e_hisp, e_asian, e_aian, e_nhpi, e_twomore, e_otherrace. Also has ep_* percentage versions.
+- nri: tractfips, stateabbrv, county, risk_score, risk_ratng, hrcn_risks, cfld_risks, ifld_risks, trnd_risks, wfir_risks, hwav_risks, resl_score, eal_score, eal_valt
+- alice: fips_5, state_fips, county_name, median_income, pct_poverty, pct_alice, pct_struggling, lat, lon
+- fema_declarations: fips_5, state_fips, county_name, total_declarations, most_recent_title, hurricane_count, flood_count, top_hazard, declarations_per_year, lat, lon
+
+IMPORTANT: Always filter by the current state unless the user explicitly asks about all states or a different state.
+- For home_fires/shelters/dat_volunteers: use {"state_abbr": "${st.abbr}"}
+- For svi: use {"st_abbr": "${st.abbr}"}
+- For nri: use {"stateabbrv": "${st.abbr}"}
+
+CRITICAL — table granularity:
+PREFERRED — TRACT-level tables (richest data): svi, nri
+SECONDARY — COUNTY-level tables: alice, fema_declarations
+POINT-level tables: home_fires, shelters, dat_volunteers
+
+DEFAULT BEHAVIOR: If the user doesn't specify "county" or "tract," DEFAULT TO TRACT-LEVEL (svi or nri).
+When the user asks about "counties," use svi with "aggregate": "county".
+When the user asks about a SPECIFIC county's tracts, use svi filtered by county.
+
+Rules:
+1. Return ONLY a single JSON object, no markdown, no explanation outside the JSON.
+1a. For compound queries, pick the SINGLE most relevant table.
+2. For exact match filters: {"field": "value"}
+3. For numeric comparisons: {"field": "gte.80"} or {"field": "gt.50"}
+4. Allowed operators: eq, gt, gte, lt, lte
+5. For ordering: "order": "fieldname.desc"
+6. nri county values have no "County" suffix
+7. svi county values include "County" suffix
+8. For risk queries use nri table ordered by risk_score.desc
+9. For poverty/economic queries use alice table ordered by pct_struggling.desc
+10. For disaster history use fema_declarations ordered by total_declarations.desc
+11. For shelter capacity queries, use post_filter with the threshold
+12. When the user asks about counties by population, use svi with "aggregate": "county"
+Response format — answerable:
+{"table":"tablename","filters":{},"order":"field.desc","limit":20,"aggregate":"county (optional)","post_filter":"optional","explanation":"one sentence"}
+Response format — cannot answer:
+{"cannot_answer":true,"reason":"brief","suggestions":["q1","q2","q3"]}`;
+}
+
+// ── State data ─────────────────────────────────────────────────────────────
+const US_STATES = [
+  {fips:"01",abbr:"AL",name:"Alabama",center:[-86.9,32.8],zoom:7},
+  {fips:"02",abbr:"AK",name:"Alaska",center:[-153.4,64.2],zoom:4},
+  {fips:"04",abbr:"AZ",name:"Arizona",center:[-111.9,34.2],zoom:7},
+  {fips:"05",abbr:"AR",name:"Arkansas",center:[-92.4,34.8],zoom:7},
+  {fips:"06",abbr:"CA",name:"California",center:[-119.4,37.2],zoom:6},
+  {fips:"08",abbr:"CO",name:"Colorado",center:[-105.5,39.0],zoom:7},
+  {fips:"09",abbr:"CT",name:"Connecticut",center:[-72.7,41.6],zoom:9},
+  {fips:"10",abbr:"DE",name:"Delaware",center:[-75.5,39.0],zoom:9},
+  {fips:"11",abbr:"DC",name:"District of Columbia",center:[-77.0,38.9],zoom:12},
+  {fips:"12",abbr:"FL",name:"Florida",center:[-82.5,28.1],zoom:6},
+  {fips:"13",abbr:"GA",name:"Georgia",center:[-83.5,32.7],zoom:7},
+  {fips:"15",abbr:"HI",name:"Hawaii",center:[-157.5,20.8],zoom:7},
+  {fips:"16",abbr:"ID",name:"Idaho",center:[-114.7,44.4],zoom:6},
+  {fips:"17",abbr:"IL",name:"Illinois",center:[-89.4,40.0],zoom:7},
+  {fips:"18",abbr:"IN",name:"Indiana",center:[-86.3,39.8],zoom:7},
+  {fips:"19",abbr:"IA",name:"Iowa",center:[-93.5,42.0],zoom:7},
+  {fips:"20",abbr:"KS",name:"Kansas",center:[-98.3,38.5],zoom:7},
+  {fips:"21",abbr:"KY",name:"Kentucky",center:[-85.3,37.8],zoom:7},
+  {fips:"22",abbr:"LA",name:"Louisiana",center:[-91.9,31.0],zoom:7},
+  {fips:"23",abbr:"ME",name:"Maine",center:[-69.2,45.4],zoom:7},
+  {fips:"24",abbr:"MD",name:"Maryland",center:[-76.6,39.0],zoom:8},
+  {fips:"25",abbr:"MA",name:"Massachusetts",center:[-71.8,42.2],zoom:8},
+  {fips:"26",abbr:"MI",name:"Michigan",center:[-84.7,44.3],zoom:6},
+  {fips:"27",abbr:"MN",name:"Minnesota",center:[-94.3,46.3],zoom:6},
+  {fips:"28",abbr:"MS",name:"Mississippi",center:[-89.7,32.7],zoom:7},
+  {fips:"29",abbr:"MO",name:"Missouri",center:[-92.6,38.5],zoom:7},
+  {fips:"30",abbr:"MT",name:"Montana",center:[-109.6,47.0],zoom:6},
+  {fips:"31",abbr:"NE",name:"Nebraska",center:[-99.8,41.5],zoom:7},
+  {fips:"32",abbr:"NV",name:"Nevada",center:[-116.6,39.3],zoom:6},
+  {fips:"33",abbr:"NH",name:"New Hampshire",center:[-71.6,43.7],zoom:8},
+  {fips:"34",abbr:"NJ",name:"New Jersey",center:[-74.7,40.1],zoom:8},
+  {fips:"35",abbr:"NM",name:"New Mexico",center:[-106.2,34.5],zoom:7},
+  {fips:"36",abbr:"NY",name:"New York",center:[-75.5,42.9],zoom:7},
+  {fips:"37",abbr:"NC",name:"North Carolina",center:[-79.8,35.5],zoom:7},
+  {fips:"38",abbr:"ND",name:"North Dakota",center:[-100.5,47.5],zoom:7},
+  {fips:"39",abbr:"OH",name:"Ohio",center:[-82.8,40.4],zoom:7},
+  {fips:"40",abbr:"OK",name:"Oklahoma",center:[-97.5,35.5],zoom:7},
+  {fips:"41",abbr:"OR",name:"Oregon",center:[-120.5,44.0],zoom:7},
+  {fips:"42",abbr:"PA",name:"Pennsylvania",center:[-77.6,41.0],zoom:7},
+  {fips:"44",abbr:"RI",name:"Rhode Island",center:[-71.5,41.7],zoom:10},
+  {fips:"45",abbr:"SC",name:"South Carolina",center:[-80.9,33.8],zoom:7},
+  {fips:"46",abbr:"SD",name:"South Dakota",center:[-100.2,44.4],zoom:7},
+  {fips:"47",abbr:"TN",name:"Tennessee",center:[-86.3,35.8],zoom:7},
+  {fips:"48",abbr:"TX",name:"Texas",center:[-99.3,31.5],zoom:6},
+  {fips:"49",abbr:"UT",name:"Utah",center:[-111.7,39.3],zoom:7},
+  {fips:"50",abbr:"VT",name:"Vermont",center:[-72.6,44.1],zoom:8},
+  {fips:"51",abbr:"VA",name:"Virginia",center:[-79.4,37.5],zoom:7},
+  {fips:"53",abbr:"WA",name:"Washington",center:[-120.7,47.4],zoom:7},
+  {fips:"54",abbr:"WV",name:"West Virginia",center:[-80.6,38.6],zoom:7},
+  {fips:"55",abbr:"WI",name:"Wisconsin",center:[-89.8,44.6],zoom:7},
+  {fips:"56",abbr:"WY",name:"Wyoming",center:[-107.5,43.0],zoom:7},
+  {fips:"72",abbr:"PR",name:"Puerto Rico",center:[-66.6,18.2],zoom:9},
+  {fips:"78",abbr:"VI",name:"U.S. Virgin Islands",center:[-64.8,17.7],zoom:10},
+];
+
+var _currentState = US_STATES.find(s => s.fips === "12");
+window._currentState = _currentState;
+var _currentStateFips = "12";
+var _currentStateAbbr = "FL";
+var _tractFeatures = null;
+var _isDrawing = false;
+var _parcelFetchTimer = null;
+var _parcelFilter = "all";
+var _parcelResOnly = false;
+var _parcelVisible = false;
+var _radiusClickHandler = null;
+
+// Populate state dropdown
+(function() {
+  const sel = document.getElementById("state-select");
+  US_STATES.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s.fips;
+    opt.textContent = s.name;
+    if (s.fips === "12") opt.selected = true;
+    sel.appendChild(opt);
+  });
+})();
+
+// ── MapLibre Map ────────────────────────────────────────────────────────────
+const savedBm = localStorage.getItem("selectedBasemap");
+const initStyle = savedBm || BASEMAPS[0].url;
+if (savedBm) {
+  const idx = BASEMAPS.findIndex(b => b.url === savedBm);
+  if (idx >= 0) _bmIdx = idx;
+}
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: initStyle,
+  center: [-82.5, 28.1],
+  zoom: 6,
+  maxPitch: 0,
+  dragRotate: false,
+});
+
+// Disable rotation
+map.touchZoomRotate.disableRotation();
+
+// Add zoom controls
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
+
+// ── MapLibre GL Draw ────────────────────────────────────────────────────────
+const draw = new MapboxDraw({
+  displayControlsDefault: false,
+  controls: {},
+  styles: [
+    // Line being drawn
+    { id: "gl-draw-line", type: "line", filter: ["all", ["==", "$type", "LineString"]], paint: { "line-color": "#ED1B2E", "line-width": 3 } },
+    // Polygon being drawn
+    { id: "gl-draw-polygon-fill", type: "fill", filter: ["all", ["==", "$type", "Polygon"]], paint: { "fill-color": "#1e3c78", "fill-opacity": 0.15 } },
+    { id: "gl-draw-polygon-stroke", type: "line", filter: ["all", ["==", "$type", "Polygon"]], paint: { "line-color": "#ED1B2E", "line-width": 2 } },
+    // Vertices
+    { id: "gl-draw-point", type: "circle", filter: ["all", ["==", "$type", "Point"]], paint: { "circle-radius": 5, "circle-color": "#ED1B2E" } },
+  ],
+});
+map.addControl(draw);
+
+// ── Empty GeoJSON sources (added after style loads) ─────────────────────────
+const EMPTY_FC = { type: "FeatureCollection", features: [] };
+
+map.on("load", async () => {
+  // ── Parcel layer (MVT from tiles.jbf.com) ───────────────────────────────
+  map.addSource("parcels-source", {
+    type: "vector",
+    tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt"],
+    minzoom: 11,
+    maxzoom: 16,
+  });
+  map.addLayer({
+    id: "parcels-fill",
+    type: "fill",
+    source: "parcels-source",
+    "source-layer": "parcels",
+    minzoom: 12,
+    layout: { visibility: "none" },
+    paint: {
+      "fill-color": [
+        "match", ["get", "v"],
+        0, "rgba(77,187,219,0.85)",
+        1, "rgba(143,212,164,0.85)",
+        2, "rgba(200,230,160,0.85)",
+        3, "rgba(245,213,110,0.85)",
+        4, "rgba(240,146,74,0.85)",
+        5, "rgba(224,59,46,0.85)",
+        "rgba(200,200,200,0.85)"
+      ],
+      "fill-opacity": 0.85,
+    },
+  });
+  map.addLayer({
+    id: "parcels-outline",
+    type: "line",
+    source: "parcels-source",
+    "source-layer": "parcels",
+    minzoom: 12,
+    layout: { visibility: "none" },
+    paint: { "line-color": "rgba(30,30,30,0.6)", "line-width": 0.5, "line-opacity": 0.6 },
+  });
+
+  // ── SVI tract choropleth source ─────────────────────────────────────────
+  map.addSource("svi-tracts", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "svi-fill",
+    type: "fill",
+    source: "svi-tracts",
+    layout: { visibility: "none" },
+    paint: {
+      "fill-color": ["case",
+        [">=", ["get", "rpl"], 0.75], "rgba(192,57,43,0.65)",
+        [">=", ["get", "rpl"], 0.50], "rgba(231,76,60,0.65)",
+        [">=", ["get", "rpl"], 0.25], "rgba(243,156,18,0.65)",
+        [">=", ["get", "rpl"], 0],    "rgba(249,231,159,0.65)",
+        "rgba(204,204,204,0.55)"
+      ],
+      "fill-outline-color": "rgba(80,80,80,0.25)",
+    },
+  });
+
+  // ── NRI tract choropleth source ─────────────────────────────────────────
+  map.addSource("nri-tracts", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "nri-fill",
+    type: "fill",
+    source: "nri-tracts",
+    layout: { visibility: "none" },
+    paint: {
+      "fill-color": ["case",
+        [">=", ["get", "score"], 80], "rgba(123,45,139,0.65)",
+        [">=", ["get", "score"], 60], "rgba(192,57,43,0.65)",
+        [">=", ["get", "score"], 40], "rgba(230,126,34,0.65)",
+        [">=", ["get", "score"], 20], "rgba(241,196,15,0.65)",
+        "rgba(236,240,241,0.65)"
+      ],
+      "fill-outline-color": "rgba(80,80,80,0.25)",
+    },
+  });
+
+  // ── Point layers (GeoJSON) ──────────────────────────────────────────────
+  map.addSource("fires", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "fires-no-rc",
+    type: "circle",
+    source: "fires",
+    filter: ["==", ["get", "rc_responded"], "no"],
+    paint: { "circle-radius": 5, "circle-color": "#ED1B2E", "circle-stroke-color": "#b40014", "circle-stroke-width": 1 },
+  });
+  map.addLayer({
+    id: "fires-rc",
+    type: "circle",
+    source: "fires",
+    filter: ["==", ["get", "rc_responded"], "yes"],
+    paint: { "circle-radius": 5, "circle-color": "#2EA03C", "circle-stroke-color": "#14641e", "circle-stroke-width": 1 },
+  });
+
+  map.addSource("shelters", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "shelters-layer",
+    type: "circle",
+    source: "shelters",
+    paint: {
+      "circle-radius": 6,
+      "circle-color": "#1565C0",
+      "circle-stroke-color": "#fff",
+      "circle-stroke-width": 1.5,
+    },
+  });
+
+  map.addSource("volunteers", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "volunteers-layer",
+    type: "circle",
+    source: "volunteers",
+    paint: {
+      "circle-radius": 6,
+      "circle-color": "#FF8C00",
+      "circle-stroke-color": "#fff",
+      "circle-stroke-width": 1.5,
+    },
+  });
+
+  // ── Corridor/analysis overlay ───────────────────────────────────────────
+  map.addSource("corridor", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "corridor-fill",
+    type: "fill",
+    source: "corridor",
+    paint: { "fill-color": "rgba(30,60,120,0.15)" },
+  });
+  map.addLayer({
+    id: "corridor-outline",
+    type: "line",
+    source: "corridor",
+    paint: { "line-color": "#ED1B2E", "line-width": 2 },
+  });
+
+  // ── Highlight marker source ─────────────────────────────────────────────
+  map.addSource("highlight", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "highlight-point",
+    type: "circle",
+    source: "highlight",
+    paint: { "circle-radius": 8, "circle-color": "#ED1B2E", "circle-stroke-color": "#fff", "circle-stroke-width": 2 },
+  });
+
+  // ── Load initial data ───────────────────────────────────────────────────
+  await loadPointData(_currentStateAbbr);
+  fetchAndBuildSVI();
+  fetchAndBuildNRI();
+  document.getElementById("map-loading").classList.add("hidden");
+
+  // ── Click handler ───────────────────────────────────────────────────────
+  map.on("click", async (e) => {
+    if (_isDrawing) return;
+
+    // Point features take priority
+    const pointLayers = ["fires-no-rc", "fires-rc", "shelters-layer", "volunteers-layer"];
+    const features = map.queryRenderedFeatures(e.point, { layers: pointLayers });
+    if (features.length > 0) {
+      const f = features[0];
+      const attrs = f.properties;
+      const layer = f.layer.id;
+      let type = "feature";
+      if (layer.startsWith("fires")) type = "fire";
+      else if (layer === "shelters-layer") type = "shelter";
+      else if (layer === "volunteers-layer") type = "volunteer";
+      const title = type === "fire" ? (attrs.address || attrs.fire_id || "Fire")
+                  : type === "shelter" ? (attrs.name || attrs.shelter_id || "Shelter")
+                  : (attrs.name || attrs.volunteer_id || "Volunteer");
+      showFeaturePanel(title, buildFeaturePopupHTML(type, attrs));
+      return;
+    }
+
+    // Parcel layer hit
+    if (_parcelVisible) {
+      const parcelFeats = map.queryRenderedFeatures(e.point, { layers: ["parcels-fill"] });
+      if (parcelFeats.length > 0) {
+        const lat = e.lngLat.lat;
+        const lng = e.lngLat.lng;
+        showFeaturePanel("Parcel", `<div style="font-size:13px;color:#888">Loading parcel details…</div>`);
+        try {
+          const resp = await fetch(`${PARCEL_API}/api/parcels?lat=${lat}&lng=${lng}&radius=50&limit=1`);
+          const data = await resp.json();
+          const a = data?.[0] || {};
+          const fmt = (v) => v != null ? Number(v).toLocaleString() : 'N/A';
+          const title = a.address ? `${a.address}, ${a.city || ''} ${a.zipCode || ''}` : (a.parcelId || 'Parcel');
+          showFeaturePanel(title, `<div style="font-size:13px;line-height:2">
+            <b>Parcel ID:</b> ${a.parcelId || 'N/A'}<br>
+            <b>Owner:</b> ${a.ownerName || 'N/A'}<br>
+            <b>County:</b> ${a.county || 'N/A'}<br>
+            <b>Assessed Value:</b> $${fmt(a.totalAssessedValue)}<br>
+            <b>Market Value:</b> $${fmt(a.totalMarketValue)}<br>
+            <b>Year Built:</b> ${a.yearBuilt || 'N/A'}<br>
+            <b>Sq Ft:</b> ${fmt(a.buildingArea)}<br>
+            <b>Bed/Bath:</b> ${a.totalBedrooms || 0} / ${a.totalBathrooms || 0}<br>
+            <b>Acres:</b> ${a.acres || 'N/A'}<br>
+            <b>Pool:</b> ${a.pool ? 'Yes' : 'No'}<br>
+            <b>Residential:</b> ${a.residential ? 'Yes' : 'No'}<br>
+          </div>`);
+        } catch (_) {
+          showFeaturePanel("Parcel", `<div style="font-size:13px;color:#f44">Failed to load parcel details</div>`);
+        }
+        return;
+      }
+    }
+
+    // Tract hit (SVI or NRI)
+    const tractLayers = [];
+    if (map.getLayoutProperty("svi-fill", "visibility") === "visible") tractLayers.push("svi-fill");
+    if (map.getLayoutProperty("nri-fill", "visibility") === "visible") tractLayers.push("nri-fill");
+    if (tractLayers.length > 0) {
+      const tractFeats = map.queryRenderedFeatures(e.point, { layers: tractLayers });
+      if (tractFeats.length > 0) {
+        const geoid = tractFeats[0].properties.GEOID;
+        const sviData = window._sviFullMap?.get(geoid);
+        showFeaturePanel(
+          sviData?.location || ("Census Tract " + geoid),
+          buildTractPopupHTML(geoid)
+        );
+      }
+    }
+  });
+
+  // Cursor changes on hoverable layers
+  const hoverLayers = ["fires-no-rc", "fires-rc", "shelters-layer", "volunteers-layer"];
+  hoverLayers.forEach(layer => {
+    map.on("mouseenter", layer, () => { map.getCanvas().style.cursor = "pointer"; });
+    map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; });
+  });
+});
+
+// ── Draw event handlers ─────────────────────────────────────────────────────
+map.on("draw.create", async (e) => {
+  const feature = e.features[0];
+  if (!feature) return;
+
+  if (feature.geometry.type === "LineString") {
+    const btn = document.getElementById("corridor-draw-btn");
+    btn.textContent = "Analyzing…";
+    await runCorridorAnalysis(feature.geometry);
+    btn.textContent = "Line";
+    btn.classList.remove("drawing");
+  } else if (feature.geometry.type === "Polygon") {
+    const btn = document.getElementById("polygon-draw-btn");
+    btn.textContent = "Analyzing…";
+    await runPolygonAnalysis(feature.geometry);
+    btn.textContent = "Polygon";
+    btn.classList.remove("drawing");
+  }
+  _isDrawing = false;
+  document.querySelector('.panel-tab[data-tab="corridor"]')?.classList.remove("drawing");
+  draw.deleteAll();
+});
+
+// ── Load point data ─────────────────────────────────────────────────────────
+async function loadPointData(stateAbbr) {
+  try {
+    const stFilter = `&state_abbr=eq.${stateAbbr}`;
+    const [fires, shelters, volunteers] = await Promise.all([
+      sbFetch("home_fires",     `select=fire_id,date,lat,lon,rc_responded,address,city,zip_code,damage_level,elderly_present,chapter,region,geoid${stFilter}&limit=1000`),
+      sbFetch("shelters",       `select=shelter_id,name,lat,lon,status,capacity,current_occupancy,zip_code,chapter,in_flood_zone,geoid${stFilter}&limit=200`),
+      sbFetch("dat_volunteers", `select=volunteer_id,name,lat,lon,certified,availability,zip_code,chapter,geoid${stFilter}&limit=500`),
+    ]);
+
+    // Convert to GeoJSON and set sources
+    const toGeoJSON = (items) => ({
+      type: "FeatureCollection",
+      features: items.filter(r => r.lat && r.lon).map(r => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [r.lon, r.lat] },
+        properties: r,
+      })),
+    });
+
+    if (map.getSource("fires")) map.getSource("fires").setData(toGeoJSON(fires));
+    if (map.getSource("shelters")) map.getSource("shelters").setData(toGeoJSON(shelters));
+    if (map.getSource("volunteers")) map.getSource("volunteers").setData(toGeoJSON(volunteers));
+
+    document.getElementById("stat-fires").textContent     = fires.length;
+    document.getElementById("stat-no-response").textContent = fires.filter(f => f.rc_responded === "no").length;
+    document.getElementById("stat-shelters").textContent  = shelters.length;
+    document.getElementById("stat-volunteers").textContent = volunteers.length;
+
+    window._data = { fires, shelters, volunteers };
+  } catch (err) {
+    console.error("Point data load error:", err);
+  }
+}
+
+// ── TIGERweb tract geometry fetch ───────────────────────────────────────────
+async function fetchTIGERwebTracts(statusEl) {
+  if (_tractFeatures) return _tractFeatures;
+
+  // Try local cache first
+  try {
+    const cacheResp = await fetch(`data/tracts_${_currentStateFips}.geojson`);
+    if (cacheResp.ok) {
+      const cached = await cacheResp.json();
+      const feats = cached.features || [];
+      if (feats.length > 0) {
+        _tractFeatures = feats;
+        if (statusEl) statusEl.textContent = `${feats.length} tracts (cached)`;
+        return feats;
+      }
+    }
+  } catch { /* cache miss */ }
+
+  if (statusEl) statusEl.textContent = "Loading tracts from TIGERweb…";
+
+  const BASE = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query";
+  const WHERE = encodeURIComponent(`STATE='${_currentStateFips}'`);
+  const LIMIT = 1000;
+
+  const pageUrl = (offset) =>
+    `${BASE}?where=${WHERE}&outFields=GEOID&f=geojson&returnGeometry=true&resultOffset=${offset}&resultRecordCount=${LIMIT}`;
+
+  if (statusEl) statusEl.textContent = "Loading tracts…";
+  const firstResp = await fetch(pageUrl(0));
+  if (!firstResp.ok) throw new Error(`TIGERweb HTTP ${firstResp.status}`);
+  const firstData = await firstResp.json();
+  const firstPage = firstData.features || [];
+
+  const countResp = await fetch(`${BASE}?where=${WHERE}&returnCountOnly=true&f=json`);
+  const countData = await countResp.json();
+  const totalCount = countData.count ?? firstPage.length;
+
+  const offsets = [];
+  for (let off = LIMIT; off < totalCount; off += LIMIT) offsets.push(off);
+
+  const restPages = await Promise.all(
+    offsets.map(async (offset) => {
+      const resp = await fetch(pageUrl(offset));
+      if (!resp.ok) throw new Error(`TIGERweb HTTP ${resp.status} at offset ${offset}`);
+      const data = await resp.json();
+      return data.features || [];
+    })
+  );
+
+  const all = [firstPage, ...restPages].flat();
+  _tractFeatures = all;
+  return all;
+}
+
+// ── SVI choropleth ──────────────────────────────────────────────────────────
+async function fetchAndBuildSVI() {
+  const statusEl = document.getElementById("svi-status");
+  statusEl.textContent = "Loading...";
+
+  try {
+    const sviPromise = sbFetchAll("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl,county,location&st_abbr=eq.${_currentStateAbbr}`);
+    let tractFeatures = [];
+    try { tractFeatures = await fetchTIGERwebTracts(statusEl); } catch (e) { console.warn("TIGERweb failed:", e.message); }
+    const sviData = await sviPromise;
+
+    const sviMap = new Map(sviData.map(row => [String(row.fips), row.rpl_themes]));
+    const sviFullMap = new Map(sviData.map(row => [String(row.fips), row]));
+    window._sviFullMap = sviFullMap;
+
+    // Build GeoJSON with rpl property for MapLibre style expressions
+    const features = tractFeatures.map(feat => {
+      const geoid = feat.properties?.GEOID;
+      const rpl = sviMap.has(geoid) ? sviMap.get(geoid) : -1;
+      return {
+        type: "Feature",
+        geometry: feat.geometry,
+        properties: { GEOID: geoid, rpl: rpl !== null ? rpl : -1 },
+      };
+    }).filter(f => f.geometry);
+
+    if (map.getSource("svi-tracts")) {
+      map.getSource("svi-tracts").setData({ type: "FeatureCollection", features });
+    }
+
+    statusEl.textContent = `${features.length} tracts`;
+
+    const stName = (window._currentState || {}).name || "Florida";
+    document.querySelector("#top-bar-sub").textContent =
+      `${stName} — 7 datasets · ${features.length.toLocaleString()} census tracts`;
+  } catch (err) {
+    console.error("SVI load error:", err);
+    statusEl.textContent = `Error: ${err.message}`;
+  }
+}
+
+// ── NRI choropleth ──────────────────────────────────────────────────────────
+async function fetchAndBuildNRI() {
+  const statusEl = document.getElementById("nri-status");
+  statusEl.textContent = "Loading...";
+
+  try {
+    const nriPromise = sbFetchAll("nri",
+      `select=tractfips,risk_score,risk_ratng,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks&stateabbrv=eq.${_currentStateAbbr}`);
+    let tractFeatures = [];
+    try { tractFeatures = await fetchTIGERwebTracts(statusEl); } catch (e) { console.warn("TIGERweb failed:", e.message); }
+    const nriData = await nriPromise;
+
+    const nriMap = new Map(nriData.map(row => [String(row.tractfips), row]));
+    window._nriMap = nriMap;
+
+    const features = tractFeatures.map(feat => {
+      const geoid = feat.properties?.GEOID;
+      const row = nriMap.get(geoid) || {};
+      return {
+        type: "Feature",
+        geometry: feat.geometry,
+        properties: {
+          GEOID: geoid,
+          score: row.risk_score ?? -1,
+          risk_ratng: row.risk_ratng ?? "—",
+          hrcn_risks: row.hrcn_risks ?? -1,
+          cfld_risks: row.cfld_risks ?? -1,
+          ifld_risks: row.ifld_risks ?? -1,
+          trnd_risks: row.trnd_risks ?? -1,
+          wfir_risks: row.wfir_risks ?? -1,
+          hwav_risks: row.hwav_risks ?? -1,
+        },
+      };
+    }).filter(f => f.geometry);
+
+    if (map.getSource("nri-tracts")) {
+      map.getSource("nri-tracts").setData({ type: "FeatureCollection", features });
+    }
+
+    statusEl.textContent = `${features.length} tracts`;
+  } catch (err) {
+    console.error("NRI load error:", err);
+    statusEl.textContent = `Error: ${err.message}`;
+  }
+}
+
+// ── Layer toggles ───────────────────────────────────────────────────────────
+document.getElementById("svi-toggle").addEventListener("click", () => {
+  const btn = document.getElementById("svi-toggle");
+  const vis = map.getLayoutProperty("svi-fill", "visibility");
+  const newVis = vis === "visible" ? "none" : "visible";
+  map.setLayoutProperty("svi-fill", "visibility", newVis);
+  btn.textContent = newVis === "visible" ? "ON" : "OFF";
+  btn.classList.toggle("active", newVis === "visible");
+  syncFilterSliders();
+});
+
+document.getElementById("nri-toggle").addEventListener("click", () => {
+  const btn = document.getElementById("nri-toggle");
+  const vis = map.getLayoutProperty("nri-fill", "visibility");
+  const newVis = vis === "visible" ? "none" : "visible";
+  map.setLayoutProperty("nri-fill", "visibility", newVis);
+  btn.textContent = newVis === "visible" ? "ON" : "OFF";
+  btn.classList.toggle("active", newVis === "visible");
+  syncFilterSliders();
+});
+
+document.getElementById("nri-hazard").addEventListener("change", () => {
+  const field = document.getElementById("nri-hazard").value;
+  // Update the paint property to color by selected hazard field
+  const scoreField = field === "risk_score" ? "score" : field;
+  map.setPaintProperty("nri-fill", "fill-color", ["case",
+    [">=", ["get", scoreField], 80], "rgba(123,45,139,0.65)",
+    [">=", ["get", scoreField], 60], "rgba(192,57,43,0.65)",
+    [">=", ["get", scoreField], 40], "rgba(230,126,34,0.65)",
+    [">=", ["get", scoreField], 20], "rgba(241,196,15,0.65)",
+    "rgba(236,240,241,0.65)"
+  ]);
+});
+
+// ── Parcel toggle ───────────────────────────────────────────────────────────
+document.getElementById("parcel-toggle").addEventListener("click", () => {
+  const btn = document.getElementById("parcel-toggle");
+  _parcelVisible = !_parcelVisible;
+  const vis = _parcelVisible ? "visible" : "none";
+  map.setLayoutProperty("parcels-fill", "visibility", vis);
+  map.setLayoutProperty("parcels-outline", "visibility", vis);
+  btn.textContent = _parcelVisible ? "ON" : "OFF";
+  btn.classList.toggle("active", _parcelVisible);
+  document.getElementById("fab-parcels")?.classList.toggle("active", _parcelVisible);
+  document.getElementById("parcel-legend").style.display = _parcelVisible ? "" : "none";
+});
+
+// Populate county dropdown
+(async function loadCountyDropdown() {
+  try {
+    const resp = await fetch(`${PARCEL_API}/api/counties`);
+    const data = await resp.json();
+    const select = document.getElementById("parcel-county");
+    for (const c of data.counties) {
+      const opt = document.createElement("option");
+      opt.value = c.county;
+      opt.textContent = `${c.county} (${c.count.toLocaleString()})`;
+      select.appendChild(opt);
+    }
+  } catch (e) { console.error("County dropdown error:", e); }
+})();
+
+// ── Parcel filter chips ─────────────────────────────────────────────────────
+document.querySelectorAll(".parcel-chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    const f = chip.dataset.pfilter;
+    if (f === "residential") {
+      _parcelResOnly = !_parcelResOnly;
+      chip.classList.toggle("active", _parcelResOnly);
+      chip.style.background = _parcelResOnly ? "#41b6c4" : "transparent";
+      chip.style.color = _parcelResOnly ? "#fff" : "var(--text-primary,#333)";
+      applyParcelFilters();
+      return;
+    }
+    document.querySelectorAll(".parcel-chip:not([data-pfilter='residential'])").forEach(c => {
+      c.classList.remove("active");
+      c.style.background = "transparent";
+      c.style.color = "var(--text-primary,#333)";
+    });
+    chip.classList.add("active");
+    chip.style.background = "#41b6c4";
+    chip.style.color = "#fff";
+    _parcelFilter = f;
+    applyParcelFilters();
+  });
+});
+
+function applyParcelFilters() {
+  if (!_parcelVisible) return;
+  const conditions = [];
+  if (_parcelFilter === "old")      conditions.push(["<", ["coalesce", ["get", "yearBuilt"], 9999], 1970]);
+  if (_parcelFilter === "valuable") conditions.push([">=", ["get", "v"], 4]);
+  if (_parcelFilter === "lowvalue") conditions.push(["==", ["get", "v"], 0]);
+  if (_parcelResOnly) conditions.push(["==", ["get", "residential"], true]);
+
+  if (conditions.length > 0) {
+    const matchExpr = conditions.length === 1 ? conditions[0] : ["all", ...conditions];
+    map.setPaintProperty("parcels-fill", "fill-color", [
+      "case", matchExpr,
+      ["match", ["get", "v"],
+        0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)",
+        3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)",
+        "rgba(200,200,200,0.85)"],
+      "rgba(40,40,40,0.15)"
+    ]);
+    map.setPaintProperty("parcels-fill", "fill-opacity", ["case", matchExpr, 0.85, 0.08]);
+  } else {
+    map.setPaintProperty("parcels-fill", "fill-color", [
+      "match", ["get", "v"],
+      0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)",
+      3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)",
+      "rgba(200,200,200,0.85)"
+    ]);
+    map.setPaintProperty("parcels-fill", "fill-opacity", 0.85);
+  }
+  document.getElementById("parcel-filter-count").textContent = conditions.length > 0 ? "Filter active" : "";
+}
+
+// Parcel sliders
+const YEAR_STOPS  = [0, 1920, 1940, 1960, 1970, 1980, 2000, 2010];
+const YEAR_LABELS = ["Any", "1920", "1940", "1960", "1970", "1980", "2000", "2010+"];
+const VAL_STOPS   = [0, 25000, 50000, 100000, 150000, 200000, 300000, 500000, 750000, 1000000, 2000000];
+const VAL_LABELS  = ["$0", "$25K", "$50K", "$100K", "$150K", "$200K", "$300K", "$500K", "$750K", "$1M", "$2M+"];
+
+["parcel-year-min", "parcel-year-max", "parcel-val-min", "parcel-val-max"].forEach(id => {
+  document.getElementById(id).addEventListener("input", (e) => {
+    if (id.endsWith("-min")) {
+      const maxEl = document.getElementById(id.replace("-min", "-max"));
+      if (parseInt(e.target.value) > parseInt(maxEl.value)) e.target.value = maxEl.value;
+    } else {
+      const minEl = document.getElementById(id.replace("-max", "-min"));
+      if (parseInt(e.target.value) < parseInt(minEl.value)) e.target.value = minEl.value;
+    }
+    // Update labels
+    const yMinIdx = parseInt(document.getElementById("parcel-year-min").value);
+    const yMaxIdx = parseInt(document.getElementById("parcel-year-max").value);
+    const vMinIdx = parseInt(document.getElementById("parcel-val-min").value);
+    const vMaxIdx = parseInt(document.getElementById("parcel-val-max").value);
+    const yearLabel = (yMinIdx === 0 && yMaxIdx >= YEAR_STOPS.length - 1) ? "Any" : `${YEAR_LABELS[yMinIdx]} – ${YEAR_LABELS[yMaxIdx]}`;
+    const valLabel = (vMinIdx === 0 && vMaxIdx >= VAL_STOPS.length - 1) ? "Any" : `${VAL_LABELS[vMinIdx]} – ${VAL_LABELS[vMaxIdx]}`;
+    document.getElementById("parcel-year-val").textContent = yearLabel;
+    document.getElementById("parcel-val-val").textContent = valLabel;
+    applyParcelFilters();
+  });
+});
+
+// ── Filter sliders (SVI/NRI) ────────────────────────────────────────────────
+function syncFilterSliders() {
+  const sviVis = map.getLayoutProperty("svi-fill", "visibility") === "visible";
+  const nriVis = map.getLayoutProperty("nri-fill", "visibility") === "visible";
+  document.getElementById("filter-sliders").style.display = (sviVis || nriVis) ? "block" : "none";
+
+  // Sync combined button
+  const cBtn = document.getElementById("tb-combined");
+  if (sviVis && nriVis) { cBtn.classList.add("active"); cBtn.textContent = "SVI + NRI: ON"; }
+  else { cBtn.classList.remove("active"); cBtn.textContent = "Show SVI + NRI Combined"; }
+}
+
+function applyFilters() {
+  const sviMin = parseInt(document.getElementById("svi-filter").value) / 100;
+  const nriMin = parseInt(document.getElementById("nri-filter").value);
+  const sviVis = map.getLayoutProperty("svi-fill", "visibility") === "visible";
+  const nriVis = map.getLayoutProperty("nri-fill", "visibility") === "visible";
+
+  if (sviVis) {
+    map.setFilter("svi-fill", sviMin > 0 ? [">=", ["get", "rpl"], sviMin] : null);
+  }
+  if (nriVis) {
+    const nriField = document.getElementById("nri-hazard").value;
+    const scoreField = nriField === "risk_score" ? "score" : nriField;
+    map.setFilter("nri-fill", nriMin > 0 ? [">=", ["get", scoreField], nriMin] : null);
+  }
+
+  const analyzeBtn = document.getElementById("filter-analyze-btn");
+  const resultsDiv = document.getElementById("filter-analysis-results");
+  if (sviMin > 0 || nriMin > 0) {
+    analyzeBtn.style.display = "block";
+  } else {
+    analyzeBtn.style.display = "none";
+    resultsDiv.style.display = "none";
+  }
+}
+
+document.getElementById("svi-filter").addEventListener("input", (e) => {
+  document.getElementById("svi-filter-val").textContent = (parseInt(e.target.value) / 100).toFixed(2);
+  applyFilters();
+});
+document.getElementById("nri-filter").addEventListener("input", (e) => {
+  document.getElementById("nri-filter-val").textContent = parseInt(e.target.value);
+  applyFilters();
+});
+
+// ── Combined layer toggle ───────────────────────────────────────────────────
+function toggleCombinedLayer() {
+  const btn = document.getElementById("tb-combined");
+  const isOn = btn.classList.contains("active");
+  const newVis = isOn ? "none" : "visible";
+  map.setLayoutProperty("svi-fill", "visibility", newVis);
+  map.setLayoutProperty("nri-fill", "visibility", newVis);
+  if (isOn) {
+    btn.classList.remove("active"); btn.textContent = "Show SVI + NRI Combined";
+  } else {
+    btn.classList.add("active"); btn.textContent = "SVI + NRI: ON";
+  }
+  document.getElementById("svi-toggle").textContent = newVis === "visible" ? "ON" : "OFF";
+  document.getElementById("svi-toggle").classList.toggle("active", newVis === "visible");
+  document.getElementById("nri-toggle").textContent = newVis === "visible" ? "ON" : "OFF";
+  document.getElementById("nri-toggle").classList.toggle("active", newVis === "visible");
+  syncFilterSliders();
+}
+window.toggleCombinedLayer = toggleCombinedLayer;
+
+// ── FAB layer toggles ───────────────────────────────────────────────────────
+window.toggleMapLayer = (type) => {
+  if (type === "parcel") {
+    document.getElementById("parcel-toggle").click();
+    return;
+  }
+  const layerMap = {
+    fire: ["fires-no-rc", "fires-rc"],
+    shelter: ["shelters-layer"],
+    volunteer: ["volunteers-layer"],
+  };
+  const fabMap = { fire: "fab-fires", shelter: "fab-shelters", volunteer: "fab-volunteers" };
+  const layers = layerMap[type] || [];
+  const btn = document.getElementById(fabMap[type]);
+  const vis = map.getLayoutProperty(layers[0], "visibility");
+  const newVis = vis === "visible" ? "none" : "visible";
+  layers.forEach(l => map.setLayoutProperty(l, "visibility", newVis));
+  btn?.classList.toggle("active", newVis === "visible");
+};
+
+// ── Parcel RPC analysis ─────────────────────────────────────────────────────
+async function analyzeParcelsByTracts(tractList, bbox) {
+  try {
+    const params = [];
+    if (bbox) params.push(`xmin=${bbox.xmin}&ymin=${bbox.ymin}&xmax=${bbox.xmax}&ymax=${bbox.ymax}`);
+    const county = document.getElementById("parcel-county")?.value || "";
+    if (county) params.push(`county=${encodeURIComponent(county)}`);
+    const url = `${PARCEL_API}/api/stats` + (params.length ? `?${params.join("&")}` : "");
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    return resp.json();
+  } catch (e) {
+    console.error("Parcel analysis error:", e);
+    return null;
+  }
+}
+
+// ── Corridor / Radius / Polygon analysis ────────────────────────────────────
+function avg(arr, field) {
+  const vals = arr.map(r => r[field]).filter(v => v !== null && v !== undefined);
+  return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+}
+
+function pointInPolygon(lat, lon, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  if (dx === 0 && dy === 0) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+async function runCorridorAnalysis(lineGeom) {
+  const miles = parseInt(document.getElementById("corridor-miles").value, 10);
+  const threshDeg = (miles * 1609.34) / 111320;
+  if (!_tractFeatures) { try { await fetchTIGERwebTracts(); } catch (e) {} }
+
+  const coords = lineGeom.coordinates;
+  const avgLat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+  const lonScale = Math.cos(avgLat * Math.PI / 180);
+
+  function nearLine(lat, lon) {
+    const sLon = lon * lonScale;
+    for (let i = 0; i < coords.length - 1; i++) {
+      if (distToSegment(sLon, lat, coords[i][0] * lonScale, coords[i][1], coords[i+1][0] * lonScale, coords[i+1][1]) <= threshDeg) return true;
+    }
+    return false;
+  }
+
+  // Buffer the line using turf
+  const buffered = turf.buffer(turf.lineString(coords), miles, { units: "miles" });
+
+  map.getSource("corridor").setData({
+    type: "FeatureCollection",
+    features: [buffered],
+  });
+
+  // Fit to corridor bounds
+  const bbox = turf.bbox(buffered);
+  map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 50, duration: 800 });
+
+  const { fires = [], shelters = [], volunteers = [] } = window._data || {};
+  const firesIn  = fires.filter(f => nearLine(f.lat, f.lon));
+  const sheltsIn = shelters.filter(s => nearLine(s.lat, s.lon));
+  const volsIn   = volunteers.filter(v => nearLine(v.lat, v.lon));
+
+  const tractsInCorridor = (_tractFeatures || []).filter(f => {
+    try {
+      const coords = f.geometry?.coordinates;
+      if (!coords) return false;
+      const ring = Array.isArray(coords[0][0]) ? coords[0] : coords;
+      const lons = ring.map(c => c[0]);
+      const lats = ring.map(c => c[1]);
+      const cLon = lons.reduce((a, b) => a + b, 0) / lons.length;
+      const cLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+      return nearLine(cLat, cLon);
+    } catch (e) { return false; }
+  });
+  const tractGeoids = tractsInCorridor.map(f => f.properties?.GEOID).filter(Boolean);
+
+  const corrBbox = {
+    xmin: Math.min(...coords.map(c => c[0])) - threshDeg / lonScale,
+    ymin: Math.min(...coords.map(c => c[1])) - threshDeg,
+    xmax: Math.max(...coords.map(c => c[0])) + threshDeg / lonScale,
+    ymax: Math.max(...coords.map(c => c[1])) + threshDeg,
+  };
+
+  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Corridor", corrBbox);
+}
+
+async function runRadiusAnalysis(center, miles) {
+  const threshDeg = (miles * 1609.34) / 111320;
+  if (!_tractFeatures) { try { await fetchTIGERwebTracts(); } catch (e) {} }
+
+  const lonScale = Math.cos(center.lat * Math.PI / 180);
+  function inRadius(lat, lon) {
+    const dLat = lat - center.lat;
+    const dLon = (lon - center.lng) * lonScale;
+    return Math.sqrt(dLat * dLat + dLon * dLon) <= threshDeg;
+  }
+
+  // Draw circle using turf
+  const circleGeoJSON = turf.circle([center.lng, center.lat], miles, { units: "miles", steps: 72 });
+
+  map.getSource("corridor").setData({ type: "FeatureCollection", features: [circleGeoJSON] });
+  const bbox = turf.bbox(circleGeoJSON);
+  map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 50, duration: 800 });
+
+  const { fires = [], shelters = [], volunteers = [] } = window._data || {};
+  const firesIn  = fires.filter(f => inRadius(f.lat, f.lon));
+  const sheltsIn = shelters.filter(s => inRadius(s.lat, s.lon));
+  const volsIn   = volunteers.filter(v => inRadius(v.lat, v.lon));
+
+  const tractsIn = (_tractFeatures || []).filter(f => {
+    try {
+      const coords = f.geometry?.coordinates;
+      if (!coords) return false;
+      const ring = Array.isArray(coords[0][0]) ? coords[0] : coords;
+      const lons = ring.map(c => c[0]);
+      const lats = ring.map(c => c[1]);
+      const cLon = lons.reduce((a, b) => a + b, 0) / lons.length;
+      const cLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+      return inRadius(cLat, cLon);
+    } catch (e) { return false; }
+  });
+  const tractGeoids = tractsIn.map(f => f.properties?.GEOID).filter(Boolean);
+
+  const radBbox = {
+    xmin: center.lng - threshDeg / lonScale, ymin: center.lat - threshDeg,
+    xmax: center.lng + threshDeg / lonScale, ymax: center.lat + threshDeg,
+  };
+
+  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Radius", radBbox);
+}
+
+async function runPolygonAnalysis(polyGeom) {
+  if (!_tractFeatures) { try { await fetchTIGERwebTracts(); } catch (e) {} }
+
+  const ring = polyGeom.coordinates[0];
+  function inPoly(lat, lon) { return pointInPolygon(lat, lon, ring); }
+
+  map.getSource("corridor").setData({
+    type: "FeatureCollection",
+    features: [{ type: "Feature", geometry: polyGeom, properties: {} }],
+  });
+
+  const bbox = turf.bbox({ type: "Feature", geometry: polyGeom });
+  map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 50, duration: 800 });
+
+  const { fires = [], shelters = [], volunteers = [] } = window._data || {};
+  const firesIn  = fires.filter(f => inPoly(f.lat, f.lon));
+  const sheltsIn = shelters.filter(s => inPoly(s.lat, s.lon));
+  const volsIn   = volunteers.filter(v => inPoly(v.lat, v.lon));
+
+  const tractsIn = (_tractFeatures || []).filter(f => {
+    try {
+      const coords = f.geometry?.coordinates;
+      if (!coords) return false;
+      const r = Array.isArray(coords[0][0]) ? coords[0] : coords;
+      const lons = r.map(c => c[0]);
+      const lats = r.map(c => c[1]);
+      const cLon = lons.reduce((a, b) => a + b, 0) / lons.length;
+      const cLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+      return inPoly(cLat, cLon);
+    } catch (e) { return false; }
+  });
+  const tractGeoids = tractsIn.map(f => f.properties?.GEOID).filter(Boolean);
+
+  const polyBbox = {
+    xmin: Math.min(...ring.map(c => c[0])), ymin: Math.min(...ring.map(c => c[1])),
+    xmax: Math.max(...ring.map(c => c[0])), ymax: Math.max(...ring.map(c => c[1])),
+  };
+
+  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Polygon", polyBbox);
+}
+
+async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, analysisType, bbox) {
+  let sviRows = [], nriRows = [], aliceRows = [], femaRows = [];
+  let parcelStats = null;
+
+  const fetchPromises = [];
+  if (tractGeoids.length) {
+    const inFilter = `in.(${tractGeoids.join(",")})`;
+    const countyFips = [...new Set(tractGeoids.map(g => g.slice(0, 5)))];
+    const countyFilter = `in.(${countyFips.join(",")})`;
+    fetchPromises.push(
+      Promise.all([
+        sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
+        sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
+        sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
+        sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
+      ]).then(([s, n, a, f]) => { sviRows = s; nriRows = n; aliceRows = a; femaRows = f; })
+    );
+    fetchPromises.push(analyzeParcelsByTracts(tractGeoids, bbox).then(r => { parcelStats = r; }));
+  }
+
+  await Promise.all(fetchPromises);
+  renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, aliceRows, femaRows, analysisType, parcelStats);
+  showResults(volsIn, "Volunteers in " + analysisType);
+  document.getElementById("corridor-clear-btn").style.display = "";
+  if (typeof window.openPanel === "function") window.openPanel("corridor");
+}
+
+function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, aliceRows, femaRows, analysisType, parcelStats) {
+  const noRC = firesIn.filter(f => f.rc_responded === "no").length;
+  const validSVI = sviRows.filter(r => r.rpl_themes >= 0);
+  const avgRpl   = avg(validSVI, "rpl_themes");
+  const totalPop = validSVI.reduce((s, r) => s + (r.e_totpop || 0), 0);
+  const totalElderly = validSVI.reduce((s, r) => s + (r.e_age65 || 0), 0);
+  const totalDisabled = validSVI.reduce((s, r) => s + (r.e_disabl || 0), 0);
+  const validNRI = nriRows.filter(r => r.risk_score !== null);
+  const flood = (r) => Math.max(r.cfld_risks ?? 0, r.ifld_risks ?? 0);
+  const totalEAL = validNRI.reduce((s, r) => s + (r.eal_valt || 0), 0);
+  const avgStruggling = aliceRows.length ? (aliceRows.reduce((s, r) => s + (r.pct_struggling || 0), 0) / aliceRows.length).toFixed(1) : null;
+  const avgMedian = aliceRows.length ? Math.round(aliceRows.reduce((s, r) => s + (r.median_income || 0), 0) / aliceRows.length) : null;
+  const totalDecl = femaRows.reduce((s, r) => s + (r.total_declarations || 0), 0);
+  const totalHurr = femaRows.reduce((s, r) => s + (r.hurricane_count || 0), 0);
+
+  // Update KPI bar
+  document.getElementById("stat-fires").textContent       = firesIn.length;
+  document.getElementById("stat-no-response").textContent = noRC;
+  document.getElementById("stat-shelters").textContent    = sheltsIn.length;
+  document.getElementById("stat-volunteers").textContent  = volsIn.length;
+  document.querySelector("#top-bar-sub").textContent      = `${analysisType} view — ${totalPop.toLocaleString()} residents`;
+
+  const chapterMap = {};
+  firesIn.forEach(f => { if (f.chapter) chapterMap[f.chapter] = (chapterMap[f.chapter] || 0) + 1; });
+  const chapters = Object.entries(chapterMap).sort((a, b) => b[1] - a[1]);
+
+  const accSection = document.getElementById("acc-corridor-results");
+  accSection.classList.add("active");
+  toggleAccordion("acc-corridor-results", true);
+
+  const el = document.getElementById("corridor-results");
+  const fmt = n => Number(n).toLocaleString();
+  el.innerHTML = `
+    <div class="corr-header">Population & Demographics</div><hr class="corr-divider">
+    ${totalPop > 0 ? `<div class="corr-row"><span>Estimated population:</span><span><strong>${fmt(totalPop)}</strong></span></div>` : ""}
+    ${totalElderly > 0 ? `<div class="corr-row"><span>Age 65+:</span><span><strong>${fmt(totalElderly)}</strong></span></div>` : ""}
+    ${totalDisabled > 0 ? `<div class="corr-row"><span>Disabled:</span><span><strong>${fmt(totalDisabled)}</strong></span></div>` : ""}
+    <div class="corr-row"><span>Fires:</span><span><strong>${firesIn.length}</strong> (${noRC} no RC)</span></div>
+    <div class="corr-row"><span>Shelters:</span><span><strong>${sheltsIn.length}</strong></span></div>
+    <div class="corr-row"><span>Volunteers:</span><span><strong>${volsIn.length}</strong></span></div>
+    ${aliceRows.length ? `<div class="corr-header" style="margin-top:10px">ALICE</div><hr class="corr-divider">
+      <div class="corr-row"><span>Avg struggling:</span><span><strong>${avgStruggling}%</strong></span></div>
+      <div class="corr-row"><span>Avg median income:</span><span><strong>$${fmt(avgMedian)}</strong></span></div>` : ""}
+    ${validSVI.length ? `<div class="corr-header" style="margin-top:10px">SVI</div><hr class="corr-divider">
+      <div class="corr-row"><span>Tracts:</span><span>${validSVI.length}</span></div>
+      <div class="corr-row"><span>Avg vulnerability:</span><span><strong>${Math.round(avgRpl * 100)}%</strong></span></div>` : ""}
+    ${validNRI.length ? `<div class="corr-header" style="margin-top:10px">NRI</div><hr class="corr-divider">
+      <div class="corr-row"><span>Avg risk:</span><span><strong>${Math.round(avg(validNRI, "risk_score"))}</strong></span></div>
+      <div class="corr-row"><span>Hurricane:</span><span><strong>${Math.round(avg(validNRI, "hrcn_risks"))}</strong></span></div>
+      <div class="corr-row"><span>Flood:</span><span><strong>${Math.round(avg(validNRI.map(r => ({ flood: flood(r) })), "flood"))}</strong></span></div>
+      <div class="corr-row"><span>EAL:</span><span><strong>$${fmt(Math.round(totalEAL))}</strong></span></div>` : ""}
+    ${femaRows.length ? `<div class="corr-header" style="margin-top:10px">FEMA</div><hr class="corr-divider">
+      <div class="corr-row"><span>Declarations:</span><span><strong>${totalDecl}</strong></span></div>
+      <div class="corr-row"><span>Hurricanes:</span><span><strong>${totalHurr}</strong></span></div>` : ""}
+    ${chapters.length ? `<div class="corr-header" style="margin-top:10px">RC Chapters</div><hr class="corr-divider">
+      ${chapters.map(([ch, n]) => `<div class="corr-chapter">• ${ch}: ${n} fire${n !== 1 ? "s" : ""}</div>`).join("")}` : ""}
+    ${parcelStats && parcelStats.total_parcels > 0 ? `<div class="corr-header" style="margin-top:10px">Parcels</div><hr class="corr-divider">
+      <div class="corr-row"><span>Total:</span><span><strong>${fmt(parcelStats.total_parcels)}</strong></span></div>
+      <div class="corr-row"><span>Residential:</span><span><strong>${fmt(parcelStats.residential)}</strong></span></div>
+      <div class="corr-row"><span>Avg assessed:</span><span><strong>$${fmt(parcelStats.avg_assessed)}</strong></span></div>` : ""}
+  `;
+}
+
+// ── Draw tool buttons ───────────────────────────────────────────────────────
+document.getElementById("corridor-miles").addEventListener("input", (e) => {
+  document.getElementById("corridor-miles-val").textContent = e.target.value;
+});
+
+document.getElementById("corridor-draw-btn").addEventListener("click", () => {
+  _isDrawing = true;
+  draw.changeMode("draw_line_string");
+  const btn = document.getElementById("corridor-draw-btn");
+  btn.textContent = "Drawing…";
+  btn.classList.add("drawing");
+  document.querySelector('.panel-tab[data-tab="corridor"]')?.classList.add("drawing");
+});
+
+document.getElementById("radius-drop-btn").addEventListener("click", () => {
+  _isDrawing = true;
+  const btn = document.getElementById("radius-drop-btn");
+  btn.textContent = "Click map…";
+  btn.classList.add("drawing");
+  document.querySelector('.panel-tab[data-tab="corridor"]')?.classList.add("drawing");
+
+  if (_radiusClickHandler) { map.off("click", _radiusClickHandler); _radiusClickHandler = null; }
+
+  _radiusClickHandler = async (e) => {
+    map.off("click", _radiusClickHandler);
+    _radiusClickHandler = null;
+    _isDrawing = false;
+    document.querySelector('.panel-tab[data-tab="corridor"]')?.classList.remove("drawing");
+    btn.textContent = "Analyzing…";
+    const miles = parseInt(document.getElementById("corridor-miles").value, 10);
+    await runRadiusAnalysis(e.lngLat, miles);
+    btn.textContent = "Radius";
+    btn.classList.remove("drawing");
+  };
+  map.on("click", _radiusClickHandler);
+});
+
+document.getElementById("polygon-draw-btn").addEventListener("click", () => {
+  _isDrawing = true;
+  draw.changeMode("draw_polygon");
+  const btn = document.getElementById("polygon-draw-btn");
+  btn.textContent = "Drawing…";
+  btn.classList.add("drawing");
+  document.querySelector('.panel-tab[data-tab="corridor"]')?.classList.add("drawing");
+});
+
+document.getElementById("corridor-clear-btn").addEventListener("click", () => {
+  map.getSource("corridor").setData(EMPTY_FC);
+  map.getSource("highlight").setData(EMPTY_FC);
+  draw.deleteAll();
+  if (_radiusClickHandler) { map.off("click", _radiusClickHandler); _radiusClickHandler = null; }
+  _isDrawing = false;
+  document.querySelector('.panel-tab[data-tab="corridor"]')?.classList.remove("drawing");
+  document.getElementById("radius-drop-btn").textContent = "Radius";
+  document.getElementById("radius-drop-btn").classList.remove("drawing");
+  document.getElementById("polygon-draw-btn").textContent = "Polygon";
+  document.getElementById("polygon-draw-btn").classList.remove("drawing");
+  document.getElementById("corridor-draw-btn").textContent = "Line";
+  document.getElementById("corridor-draw-btn").classList.remove("drawing");
+  document.getElementById("corridor-results").innerHTML = "";
+  document.getElementById("results-list").innerHTML = '<div id="no-results">Run a query or draw a corridor</div>';
+  document.getElementById("corridor-clear-btn").style.display = "none";
+  const accCR = document.getElementById("acc-corridor-results");
+  accCR.classList.remove("active");
+  toggleAccordion("acc-corridor-results", false);
+  toggleAccordion("acc-results", false);
+  // Reset KPI
+  if (window._data) {
+    const { fires, shelters, volunteers } = window._data;
+    document.getElementById("stat-fires").textContent       = fires.length;
+    document.getElementById("stat-no-response").textContent = fires.filter(f => f.rc_responded === "no").length;
+    document.getElementById("stat-shelters").textContent    = shelters.length;
+    document.getElementById("stat-volunteers").textContent  = volunteers.length;
+  }
+  const _st = window._currentState || { name: "Florida" };
+  document.querySelector("#top-bar-sub").textContent = `${_st.name} — 7 datasets`;
+});
+
+// ── Accordion ───────────────────────────────────────────────────────────────
+function toggleAccordion(id, forceOpen) {
+  const section = document.getElementById(id);
+  if (!section) return;
+  const header = section.querySelector(".acc-header");
+  const body   = section.querySelector(".acc-body");
+  const arrow  = section.querySelector(".acc-arrow");
+  const willOpen = (forceOpen !== undefined) ? forceOpen : body.classList.contains("closed");
+  body.classList.toggle("closed", !willOpen);
+  arrow.textContent = willOpen ? "▼" : "▶";
+  header.classList.toggle("is-open", willOpen);
+}
+window.toggleAccordion = toggleAccordion;
+
+// ── Result cards ────────────────────────────────────────────────────────────
+function _renderResultCards(items) {
+  return items.map((item, i) => {
+    const isFire    = "fire_id"      in item;
+    const isShelter = "shelter_id"   in item;
+    const isVol     = "volunteer_id" in item;
+    let title = "", meta = "", chapter = "", badges = [];
+
+    if (isFire) {
+      title = item.address || item.fire_id;
+      meta = [item.city, item.zip_code].filter(Boolean).join(" · ");
+      chapter = item.chapter || "";
+      if (item.damage_level === "destroyed") badges.push(["badge-red", "destroyed"]);
+      else if (item.damage_level === "major") badges.push(["badge-orange", "major"]);
+      else badges.push(["badge-gray", "minor"]);
+      if (item.rc_responded === "no") badges.push(["badge-red", "no RC"]);
+      else badges.push(["badge-green", "RC responded"]);
+      if (item.elderly_present === "yes") badges.push(["badge-orange", "elderly"]);
+    } else if (isShelter) {
+      title = item.name || item.shelter_id;
+      const pct = item.capacity > 0 ? Math.round(item.current_occupancy / item.capacity * 100) : "?";
+      meta = `${item.zip_code || ""} · ${pct}% full`;
+      chapter = item.chapter || "";
+      const sc = item.status === "open" ? "badge-green" : item.status === "full" ? "badge-red" : "badge-gray";
+      badges.push([sc, item.status || "—"]);
+    } else if (isVol) {
+      title = item.name || item.volunteer_id;
+      meta = item.zip_code || "";
+      chapter = item.chapter || "";
+      const ac = item.availability === "available" ? "badge-green" : item.availability === "deployed" ? "badge-orange" : "badge-gray";
+      badges.push([ac, item.availability || "—"]);
+      if (item.certified === "yes") badges.push(["badge-blue", "certified"]);
+    } else {
+      title = Object.values(item).slice(0, 2).filter(Boolean).join(" · ") || "Record";
+      meta = Object.entries(item).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(" · ");
+    }
+
+    const distStr = item._dist ? ` · ${(item._dist / 1000).toFixed(1)} km` : "";
+    const badgeHtml = badges.map(([cls, txt]) => `<span class="badge ${cls}">${txt}</span>`).join("");
+    const hasCoords = item.lat && item.lon;
+    const clickAttr = hasCoords ? `onclick="window._zoomToResult(${i})"` : "";
+    const cursorStyle = hasCoords ? "cursor:pointer" : "";
+
+    return `<div class="result-card" data-idx="${i}" ${clickAttr} style="${cursorStyle}">
+      <div class="result-title">${title}${hasCoords ? ' <span style="font-size:10px;color:var(--text-muted)">↗</span>' : ''}</div>
+      <div class="result-meta">${meta}${distStr}</div>
+      ${chapter ? `<div class="result-chapter">${chapter}</div>` : ""}
+      ${badgeHtml ? `<div class="result-badges">${badgeHtml}</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function showResults(items, label) {
+  const list = document.getElementById("results-list");
+  const accHdr = document.querySelector("#acc-results .acc-label");
+  if (accHdr) accHdr.textContent = `${label} (${items.length})`;
+  if (!items.length) {
+    list.innerHTML = '<div id="no-results">No results found</div>';
+    toggleAccordion("acc-results", true);
+    return;
+  }
+  toggleAccordion("acc-results", true);
+  list.innerHTML = _renderResultCards(items);
+  window._resultItems = items;
+}
+
+window._zoomToResult = (idx) => {
+  const item = window._resultItems?.[idx];
+  if (!item || !item.lat || !item.lon) return;
+  map.getSource("highlight").setData({
+    type: "FeatureCollection",
+    features: [{ type: "Feature", geometry: { type: "Point", coordinates: [item.lon, item.lat] }, properties: {} }],
+  });
+  map.flyTo({ center: [item.lon, item.lat], zoom: 12, duration: 800 });
+};
+
+// ── Query handler ───────────────────────────────────────────────────────────
+const queryInput  = document.getElementById("query-input");
+const queryBtn    = document.getElementById("query-btn");
+const queryStatus = document.getElementById("query-status");
+
+queryBtn.addEventListener("click", runQuery);
+queryInput.addEventListener("keydown", e => { if (e.key === "Enter") runQuery(); });
+
+const FL_CITIES = {
+  orlando: [28.5383, -81.3792], miami: [25.7617, -80.1918], tampa: [27.9506, -82.4572],
+  jacksonville: [30.3322, -81.6557], tallahassee: [30.4383, -84.2807],
+  gainesville: [29.6516, -82.3248], pensacola: [30.4213, -87.2169],
+  "fort lauderdale": [26.1224, -80.1373], naples: [26.1420, -81.7948],
+  sarasota: [27.3364, -82.5307], "fort myers": [26.6406, -81.8723],
+  "west palm beach": [26.7153, -80.0534], clearwater: [27.9659, -82.8001],
+};
+
+async function runQuery() {
+  const q = queryInput.value.trim();
+  if (!q) return;
+  map.getSource("corridor").setData(EMPTY_FC);
+  map.getSource("highlight").setData(EMPTY_FC);
+
+  const hdr = document.getElementById("query-results-header");
+  const list = document.getElementById("query-results-list");
+  if (hdr) { hdr.style.display = "none"; hdr.textContent = ""; }
+  if (list) list.innerHTML = "";
+
+  queryBtn.disabled = true;
+  queryStatus.textContent = "Asking Claude…";
+
+  try {
+    // Spatial shortcut
+    const qLow = q.toLowerCase();
+    const spatialMatch = qLow.match(/(\d+)\s*(km|miles?)/);
+    const cityMatch = Object.entries(FL_CITIES).find(([c]) => qLow.includes(c));
+
+    if (spatialMatch && cityMatch && window._data) {
+      const dist = parseFloat(spatialMatch[1]);
+      const unit = spatialMatch[2];
+      const meters = unit.startsWith("km") ? dist * 1000 : dist * 1609.34;
+      const [lat, lon] = cityMatch[1];
+      const haversine = (lat1, lon1, lat2, lon2) => {
+        const R = 6371000, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      };
+      const { fires, shelters, volunteers } = window._data;
+      const isShelterQ = qLow.includes("shelter");
+      const isVolQ = qLow.includes("volunteer") || qLow.includes("certified");
+      const pool = isShelterQ ? shelters : isVolQ ? volunteers : fires;
+      let results = pool.map(r => ({ ...r, _dist: haversine(lat, lon, r.lat, r.lon) })).filter(r => r._dist <= meters);
+      results.sort((a, b) => a._dist - b._dist);
+
+      const label = `Within ${dist}${unit} of ${cityMatch[0]} — ${results.length} result${results.length !== 1 ? "s" : ""}`;
+      queryStatus.textContent = label;
+      queryBtn.disabled = false;
+      renderQueryResults(results.slice(0, 50), label);
+      if (results.length > 0) {
+        const bounds = results.reduce((b, r) => b.extend([r.lon, r.lat]), new maplibregl.LngLatBounds());
+        map.fitBounds(bounds, { padding: 50, duration: 800 });
+      }
+      return;
+    }
+
+    // AI query
+    const aiRes = await fetch("/api/interpret", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system: getSchemaPrompt(), query: q }),
+    });
+
+    const aiData = await aiRes.json();
+    if (aiData.error) throw new Error(aiData.error);
+    const rawText = aiData.content?.[0]?.text || "{}";
+    const cleaned = rawText.replace(/```json|```/g, "").trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (_e) {
+      const m = cleaned.match(/\{[\s\S]*\}/);
+      if (!m) throw _e;
+      let depth = 0, end = -1;
+      for (let i = 0; i < m[0].length; i++) {
+        if (m[0][i] === '{') depth++;
+        else if (m[0][i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+      }
+      parsed = JSON.parse(m[0].slice(0, end));
+    }
+
+    if (parsed.cannot_answer) {
+      queryStatus.innerHTML = `<span style="color:#e67e22">⚠ ${parsed.reason || "That data isn't in our database."}</span>`;
+      const suggestions = parsed.suggestions || [];
+      if (suggestions.length > 0 && hdr && list) {
+        hdr.style.display = "block";
+        hdr.textContent = "Try one of these instead:";
+        list.innerHTML = suggestions.map(s =>
+          `<div class="result-card" style="cursor:pointer;padding:10px 12px" onclick="document.getElementById('query-input').value=this.textContent;runQuery()">${s}</div>`
+        ).join("");
+      }
+      queryBtn.disabled = false;
+      return;
+    }
+
+    queryStatus.textContent = `Claude: ${parsed.explanation || "querying…"}`;
+
+    const table = parsed.table || "home_fires";
+    const fetchLimit = parsed.aggregate === "county" ? 6000 : parsed.limit;
+    const params = buildSupabaseParams(parsed.filters, parsed.order, fetchLimit);
+    let rows;
+    try {
+      rows = await sbFetch(table, params);
+    } catch (fetchErr) {
+      const stKey = table === "svi" ? "st_abbr" : table === "nri" ? "stateabbrv" : "state_abbr";
+      const st = window._currentState || { abbr: "FL" };
+      const fallbackParams = buildSupabaseParams({ [stKey]: st.abbr }, parsed.order, fetchLimit);
+      rows = await sbFetch(table, fallbackParams);
+    }
+
+    // Post-filter
+    if (parsed.post_filter) {
+      const pctMatch = parsed.post_filter.match(/pct_full_(gte|gt|lte|lt)_(\d+)/);
+      if (pctMatch && table === "shelters") {
+        const op = pctMatch[1];
+        const threshold = parseInt(pctMatch[2]);
+        rows = rows.filter(r => {
+          if (!r.capacity || r.capacity === 0) return false;
+          const pct = (r.current_occupancy / r.capacity) * 100;
+          return op === "gte" ? pct >= threshold : op === "gt" ? pct > threshold : op === "lte" ? pct <= threshold : pct < threshold;
+        });
+      }
+    }
+
+    // County aggregation
+    if (parsed.aggregate === "county" && (table === "svi" || table === "nri")) {
+      const countyMap = new Map();
+      rows.forEach(r => {
+        let cty = r.county || "Unknown";
+        const displayCounty = cty.includes("County") ? cty : cty + " County";
+        const key = cty.replace(/ County$/i, "").toLowerCase();
+        if (!countyMap.has(key)) countyMap.set(key, { _display: displayCounty, _tracts: 0, _sums: {}, _counts: {} });
+        const agg = countyMap.get(key);
+        agg._tracts++;
+        for (const [f, v] of Object.entries(r)) {
+          if (["county","fips","tractfips","st_abbr","stateabbrv","location","risk_ratng"].includes(f)) continue;
+          const num = parseFloat(v);
+          if (isNaN(num) || num < 0) continue;
+          agg._sums[f] = (agg._sums[f] || 0) + num;
+          agg._counts[f] = (agg._counts[f] || 0) + 1;
+        }
+      });
+      const countyRows = [];
+      countyMap.forEach((agg) => {
+        const row = { county: agg._display, tracts: agg._tracts };
+        for (const f of Object.keys(agg._sums)) {
+          const isAvg = f.startsWith("ep_") || f.endsWith("_risks") || f.endsWith("_score") || f.startsWith("rpl_");
+          row[f] = isAvg ? Math.round((agg._sums[f] / (agg._counts[f] || 1)) * 10) / 10 : Math.round(agg._sums[f]);
+        }
+        countyRows.push(row);
+      });
+      const orderField = parsed.order ? parsed.order.split(".")[0] : (table === "nri" ? "risk_score" : "e_totpop");
+      const orderDir = parsed.order ? parsed.order.split(".")[1] : "desc";
+      countyRows.sort((a, b) => orderDir === "desc" ? (b[orderField] || 0) - (a[orderField] || 0) : (a[orderField] || 0) - (b[orderField] || 0));
+      rows = countyRows.slice(0, parsed.limit || 20);
+    }
+
+    const label = `${rows.length} result${rows.length !== 1 ? "s" : ""}`;
+    queryBtn.disabled = false;
+    renderQueryResults(rows.slice(0, 50), label);
+
+    // Plot rows with lat/lon
+    const geoRows = rows.filter(r => r.lat && r.lon);
+    if (geoRows.length) {
+      map.getSource("highlight").setData({
+        type: "FeatureCollection",
+        features: geoRows.map(r => ({ type: "Feature", geometry: { type: "Point", coordinates: [r.lon, r.lat] }, properties: r })),
+      });
+      const bounds = geoRows.reduce((b, r) => b.extend([r.lon, r.lat]), new maplibregl.LngLatBounds());
+      map.fitBounds(bounds, { padding: 50, duration: 800 });
+    }
+
+  } catch (err) {
+    queryStatus.textContent = `Error: ${err.message}`;
+    queryBtn.disabled = false;
+  }
+}
+window.runQuery = runQuery;
+
+function renderQueryResults(items, label) {
+  const hdr = document.getElementById("query-results-header");
+  const list = document.getElementById("query-results-list");
+  if (!hdr || !list) return;
+  hdr.style.display = "block";
+  hdr.textContent = `▼ ${label} (${items.length})`;
+  if (!items.length) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No results found</div>';
+    return;
+  }
+  list.innerHTML = _renderResultCards(items);
+  window._resultItems = items;
+}
+
+// ── Feature popup HTML builders ─────────────────────────────────────────────
+function buildFeaturePopupHTML(type, attrs) {
+  const a = attrs;
+  const svi = a.geoid ? window._sviFullMap?.get(String(a.geoid)) : null;
+  const nri = a.geoid ? window._nriMap?.get(String(a.geoid)) : null;
+  const pct = v => (v != null && v >= 0) ? Math.round(v * 100) + "%" : "—";
+  const sc = v => (v != null) ? Math.round(v) : "—";
+
+  function row(label, value) {
+    return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border-color)">
+      <span style="color:var(--text-muted);font-size:12px">${label}</span>
+      <span style="font-weight:600;font-size:12px">${value}</span></div>`;
+  }
+  function sectionTitle(text) {
+    return `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#a51c30;margin:14px 0 6px;padding-top:8px;border-top:1px solid var(--border-color)">${text}</div>`;
+  }
+
+  let html = "";
+  if (type === "fire") {
+    const respColor = a.rc_responded === "no" ? "#ED1B2E" : "#2d8a4e";
+    const respLabel = a.rc_responded === "no" ? "NO RC RESPONSE" : "RC RESPONDED";
+    html += `<div style="margin-bottom:8px"><span style="background:${respColor};color:#fff;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:bold">${respLabel}</span>
+      <span style="background:#f0f0f0;color:#555;padding:2px 8px;border-radius:3px;font-size:10px;margin-left:4px;font-weight:600">${(a.damage_level||'unknown').toUpperCase()}</span></div>`;
+    html += row("Date", a.date || "—") + row("City", a.city || "—") + row("ZIP", a.zip_code || "—");
+    html += row("Elderly Present", a.elderly_present === "yes" ? "Yes" : "No") + row("Chapter", a.chapter || "—");
+  } else if (type === "shelter") {
+    const statusColor = a.status === "open" ? "#2d8a4e" : a.status === "full" ? "#e67e22" : "#999";
+    const pctFull = a.capacity > 0 ? Math.round(a.current_occupancy / a.capacity * 100) : 0;
+    html += `<div style="margin-bottom:10px"><span style="background:${statusColor};color:#fff;padding:3px 10px;border-radius:3px;font-size:11px;font-weight:bold">${(a.status||'unknown').toUpperCase()}</span></div>
+      <div style="margin:8px 0"><div style="font-size:11px;color:var(--text-muted)">Occupancy: ${a.current_occupancy||0} / ${a.capacity||0} (${pctFull}%)</div>
+      <div style="background:var(--bg-section);border-radius:4px;height:10px;overflow:hidden"><div style="background:${statusColor};width:${pctFull}%;height:100%;border-radius:4px"></div></div></div>`;
+    html += row("ZIP", a.zip_code || "—") + row("Chapter", a.chapter || "—");
+  } else if (type === "volunteer") {
+    const availColor = a.availability === "available" ? "#2d8a4e" : a.availability === "deployed" ? "#e67e22" : "#999";
+    html += `<div style="margin-bottom:10px"><span style="background:${availColor};color:#fff;padding:3px 10px;border-radius:3px;font-size:11px;font-weight:bold">${(a.availability||'unknown').toUpperCase()}</span>
+      <span style="background:${a.certified==='yes'?'#1565C0':'#999'};color:#fff;padding:3px 10px;border-radius:3px;font-size:11px;margin-left:4px;font-weight:600">${a.certified==='yes'?'CERTIFIED':'NOT CERTIFIED'}</span></div>`;
+    html += row("ZIP", a.zip_code || "—") + row("Chapter", a.chapter || "—");
+  }
+
+  if (svi || nri) {
+    html += sectionTitle("Census Tract " + (a.geoid || ""));
+    if (svi) {
+      html += row("Population", (svi.e_totpop||0).toLocaleString());
+      html += row("SVI Overall", pct(svi.rpl_themes));
+    }
+    if (nri) {
+      html += row("NRI Risk Score", sc(nri.risk_score));
+      html += row("Hurricane", sc(nri.hrcn_risks));
+      html += row("Flood", sc(Math.max(nri.cfld_risks||0, nri.ifld_risks||0)));
+    }
+  }
+
+  return html;
+}
+
+function buildTractPopupHTML(geoid) {
+  const svi = window._sviFullMap?.get(geoid);
+  const nri = window._nriMap?.get(geoid);
+  const pct = v => (v != null && v >= 0) ? Math.round(v * 100) + "%" : "—";
+  const num = v => (v != null) ? (+v).toLocaleString() : "—";
+
+  function bar(label, val, isScore) {
+    const display = isScore ? Math.round(val) : Math.round(val * 100) + "%";
+    const fillPct = isScore ? val : val * 100;
+    const color = isScore
+      ? (val >= 80 ? "#e05070" : val >= 60 ? "#e07830" : val >= 40 ? "#d4b020" : val >= 20 ? "#78aa28" : "#6abf9e")
+      : (val >= 0.75 ? "#e05070" : val >= 0.50 ? "#e07830" : val >= 0.25 ? "#d4b020" : "#78aa28");
+    return `<div class="tp-bar-row"><div class="tp-bar-head"><span>${label}</span><span>${display}</span></div>
+      <div class="tp-bar-track"><div class="tp-bar-fill" style="width:${Math.min(fillPct, 100)}%;background:${color}"></div></div></div>`;
+  }
+  function kv(key, val) {
+    return `<div class="tp-kv"><span class="tp-kv-key">${key}</span><span class="tp-kv-val">${val}</span></div>`;
+  }
+
+  let html = "";
+  const sviVal = svi?.rpl_themes;
+  const nriVal = nri?.risk_score;
+
+  if (sviVal != null && sviVal >= 0 && nriVal != null) {
+    const combined = Math.round((sviVal * 100 + nriVal) / 2);
+    const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "#e05070" }
+               : combined >= 50 ? { label: "High Combined Risk", color: "#e07830" }
+               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#d4b020" }
+               : { label: "Low Combined Risk", color: "#78aa28" };
+    html += `<div class="tp-hero"><div class="tp-hero-label">Combined Risk Score</div>
+      <div class="tp-hero-score" style="color:${cCat.color}">${combined}</div>
+      <div class="tp-hero-cat" style="color:${cCat.color}">${cCat.label}</div>
+      <div class="tp-hero-tract">${svi?.location || ("Tract " + geoid)}</div></div>`;
+  }
+
+  if (svi) {
+    html += `<div class="tp-section">Population</div>`;
+    html += kv("Total Population", num(svi.e_totpop));
+    if (svi.e_age65) html += kv("Age 65+", num(svi.e_age65));
+    if (svi.e_disabl) html += kv("Disabled", num(svi.e_disabl));
+    html += `<div class="tp-section">SVI Sub-Themes</div>`;
+    html += bar("Socioeconomic Status", svi.rpl_theme1, false);
+    html += bar("Household Characteristics", svi.rpl_theme2, false);
+    html += bar("Racial & Ethnic Minority", svi.rpl_theme3, false);
+    html += bar("Housing & Transportation", svi.rpl_theme4, false);
+  }
+
+  if (nri) {
+    const hazards = [
+      ["Hurricane", nri.hrcn_risks], ["Coastal Flood", nri.cfld_risks],
+      ["Inland Flood", nri.ifld_risks], ["Tornado", nri.trnd_risks],
+      ["Wildfire", nri.wfir_risks], ["Heat Wave", nri.hwav_risks],
+    ].filter(([,v]) => v != null && v > 0).sort((a,b) => b[1] - a[1]);
+    if (hazards.length) {
+      html += `<div class="tp-section">Top Hazard Risks</div>`;
+      hazards.forEach(([label, val]) => html += bar(label, val, true));
+    }
+  }
+
+  // Async ALICE + FEMA fetch
+  const countyFips = geoid.slice(0, 5);
+  const asyncId = "tract-async-" + Date.now();
+  html += `<div id="${asyncId}"></div>`;
+  setTimeout(() => {
+    Promise.all([
+      sbFetch("alice", "select=*&fips_5=eq." + countyFips),
+      sbFetch("fema_declarations", "select=*&fips_5=eq." + countyFips),
+    ]).then(([a, f]) => {
+      const el = document.getElementById(asyncId);
+      if (!el) return;
+      let extra = "";
+      if (a?.[0]) {
+        extra += `<div class="tp-section">ALICE</div>`;
+        extra += kv("Struggling", a[0].pct_struggling + "%");
+        extra += kv("Median income", "$" + num(a[0].median_income));
+      }
+      if (f?.[0]) {
+        extra += `<div class="tp-section">FEMA</div>`;
+        extra += kv("Declarations", f[0].total_declarations);
+        extra += kv("Top Hazard", f[0].top_hazard || "—");
+      }
+      el.innerHTML = extra;
+    }).catch(() => {});
+  }, 0);
+
+  return html || '<div style="color:#888;text-align:center;padding:16px 0">No data for this tract.</div>';
+}
+
+function showFeaturePanel(title, html) {
+  document.getElementById("feature-info-title").textContent = title;
+  document.getElementById("feature-info-content").innerHTML = html;
+  openPanel("feature");
+}
+
+// ── Panel switching ─────────────────────────────────────────────────────────
+function switchTab(name) {
+  const panel = document.getElementById("right-panel");
+  const panels = ["ctx-layers", "ctx-corridor", "ctx-query", "ctx-feature"];
+  if (panel.classList.contains("open") && panel.dataset.active === name) {
+    closePanel(); return;
+  }
+  panels.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (id === "ctx-" + name) ? "flex" : "none";
+  });
+  panel.classList.add("open");
+  panel.dataset.active = name;
+  panel.dataset.lastTab = name;
+  document.querySelectorAll(".panel-tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.getElementById("panel-toggle").textContent = "✕";
+}
+window.switchTab = switchTab;
+
+function openPanel(name) {
+  const panel = document.getElementById("right-panel");
+  const panels = ["ctx-layers", "ctx-corridor", "ctx-query", "ctx-feature"];
+  panels.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = (id === "ctx-" + name) ? "flex" : "none";
+  });
+  panel.classList.add("open");
+  panel.dataset.active = name;
+  if (name !== "feature") panel.dataset.lastTab = name;
+  document.querySelectorAll(".panel-tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.getElementById("panel-toggle").textContent = "✕";
+}
+window.openPanel = openPanel;
+
+function closePanel() {
+  const panel = document.getElementById("right-panel");
+  panel.classList.remove("open");
+  panel.dataset.active = "";
+  document.querySelectorAll(".panel-tab").forEach(t => t.classList.remove("active"));
+  document.getElementById("panel-toggle").textContent = "☰";
+}
+window.closePanel = closePanel;
+
+function togglePanel() {
+  const panel = document.getElementById("right-panel");
+  if (panel.classList.contains("open")) { closePanel(); }
+  else { openPanel(panel.dataset.lastTab || "layers"); }
+}
+window.togglePanel = togglePanel;
+
+// ── Reset map ───────────────────────────────────────────────────────────────
+function resetMap() {
+  closePanel();
+  map.getSource("corridor").setData(EMPTY_FC);
+  map.getSource("highlight").setData(EMPTY_FC);
+  draw.deleteAll();
+  if (_radiusClickHandler) { map.off("click", _radiusClickHandler); _radiusClickHandler = null; }
+  _isDrawing = false;
+
+  // Restore all point layers visibility
+  ["fires-no-rc", "fires-rc", "shelters-layer", "volunteers-layer"].forEach(l => map.setLayoutProperty(l, "visibility", "visible"));
+  document.getElementById("fab-fires")?.classList.add("active");
+  document.getElementById("fab-shelters")?.classList.add("active");
+  document.getElementById("fab-volunteers")?.classList.add("active");
+
+  // Reset draw buttons
+  document.querySelector('.panel-tab[data-tab="corridor"]')?.classList.remove("drawing");
+  document.getElementById("corridor-draw-btn").textContent = "Line";
+  document.getElementById("radius-drop-btn").textContent = "Radius";
+  document.getElementById("polygon-draw-btn").textContent = "Polygon";
+  document.getElementById("corridor-results").innerHTML = "";
+  document.getElementById("corridor-clear-btn").style.display = "none";
+
+  // Reset query
+  document.getElementById("query-input").value = "";
+  document.getElementById("query-status").textContent = "";
+  document.getElementById("query-results-list").innerHTML = "";
+  const qrh = document.getElementById("query-results-header");
+  if (qrh) { qrh.style.display = "none"; }
+  document.getElementById("results-list").innerHTML = '<div id="no-results">Run a query or draw a corridor</div>';
+
+  // Reset filters
+  map.setFilter("svi-fill", null);
+  map.setFilter("nri-fill", null);
+  document.getElementById("svi-filter").value = 0;
+  document.getElementById("nri-filter").value = 0;
+  document.getElementById("svi-filter-val").textContent = "0.00";
+  document.getElementById("nri-filter-val").textContent = "0";
+  document.getElementById("filter-sliders").style.display = "none";
+
+  // Reset KPI
+  if (window._data) {
+    const { fires, shelters, volunteers } = window._data;
+    document.getElementById("stat-fires").textContent       = fires.length;
+    document.getElementById("stat-no-response").textContent = fires.filter(f => f.rc_responded === "no").length;
+    document.getElementById("stat-shelters").textContent    = shelters.length;
+    document.getElementById("stat-volunteers").textContent  = volunteers.length;
+  }
+  const st = window._currentState;
+  if (st) { map.flyTo({ center: st.center, zoom: st.zoom, duration: 800 }); }
+  document.querySelector("#top-bar-sub").textContent = `${(st||{}).name || "Florida"} — 7 datasets`;
+}
+window.resetMap = resetMap;
+
+// ── State change ────────────────────────────────────────────────────────────
+function switchState(fips) {
+  const st = US_STATES.find(s => s.fips === fips);
+  if (!st) return;
+  _currentState = st;
+  window._currentState = st;
+  _currentStateFips = st.fips;
+  _currentStateAbbr = st.abbr;
+  _tractFeatures = null;
+  document.getElementById("state-select").value = fips;
+  document.querySelector("#top-bar-sub").textContent = `Loading ${st.name}...`;
+  map.flyTo({ center: st.center, zoom: st.zoom, duration: 1200 });
+
+  // Clear lookup maps
+  window._sviFullMap = new Map();
+  window._nriMap = new Map();
+  map.getSource("corridor").setData(EMPTY_FC);
+  map.getSource("highlight").setData(EMPTY_FC);
+
+  Promise.all([fetchAndBuildSVI(), fetchAndBuildNRI(), loadPointData(st.abbr)]);
+}
+window.switchState = switchState;
+
+// ── Dark mode ───────────────────────────────────────────────────────────────
+function toggleDarkMode() {
+  const isDark = document.body.classList.toggle("dark");
+  if (!localStorage.getItem("selectedBasemap")) {
+    map.setStyle(isDark ? BASEMAPS[1].url : BASEMAPS[0].url);
+    // Re-add sources and layers after style change
+    map.once("style.load", () => { reinitMapLayers(); });
+  }
+  document.getElementById("dark-toggle").innerHTML = isDark ? "☀ Light" : "☾ Dark";
+  localStorage.setItem("darkMode", isDark ? "1" : "0");
+}
+window.toggleDarkMode = toggleDarkMode;
+
+if (localStorage.getItem("darkMode") === "1") {
+  document.body.classList.add("dark");
+  document.getElementById("dark-toggle").innerHTML = "☀ Light";
+  if (!savedBm) {
+    map.setStyle(BASEMAPS[1].url);
+    map.once("style.load", () => { reinitMapLayers(); });
+  }
+}
+
+function reinitMapLayers() {
+  // Re-add all custom sources and layers after basemap change
+  if (!map.getSource("parcels-source")) {
+    map.addSource("parcels-source", { type: "vector", tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt"], minzoom: 11, maxzoom: 16 });
+    map.addLayer({ id: "parcels-fill", type: "fill", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "fill-color": ["match", ["get", "v"], 0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)", 3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)", "rgba(200,200,200,0.85)"], "fill-opacity": 0.85 } });
+    map.addLayer({ id: "parcels-outline", type: "line", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "line-color": "rgba(30,30,30,0.6)", "line-width": 0.5 } });
+  }
+  if (!map.getSource("svi-tracts")) {
+    map.addSource("svi-tracts", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "svi-fill", type: "fill", source: "svi-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["get", "rpl"], 0.75], "rgba(192,57,43,0.65)", [">=", ["get", "rpl"], 0.50], "rgba(231,76,60,0.65)", [">=", ["get", "rpl"], 0.25], "rgba(243,156,18,0.65)", [">=", ["get", "rpl"], 0], "rgba(249,231,159,0.65)", "rgba(204,204,204,0.55)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
+  }
+  if (!map.getSource("nri-tracts")) {
+    map.addSource("nri-tracts", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "nri-fill", type: "fill", source: "nri-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["get", "score"], 80], "rgba(123,45,139,0.65)", [">=", ["get", "score"], 60], "rgba(192,57,43,0.65)", [">=", ["get", "score"], 40], "rgba(230,126,34,0.65)", [">=", ["get", "score"], 20], "rgba(241,196,15,0.65)", "rgba(236,240,241,0.65)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
+  }
+  if (!map.getSource("fires")) {
+    map.addSource("fires", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "fires-no-rc", type: "circle", source: "fires", filter: ["==", ["get", "rc_responded"], "no"], paint: { "circle-radius": 5, "circle-color": "#ED1B2E", "circle-stroke-color": "#b40014", "circle-stroke-width": 1 } });
+    map.addLayer({ id: "fires-rc", type: "circle", source: "fires", filter: ["==", ["get", "rc_responded"], "yes"], paint: { "circle-radius": 5, "circle-color": "#2EA03C", "circle-stroke-color": "#14641e", "circle-stroke-width": 1 } });
+  }
+  if (!map.getSource("shelters")) {
+    map.addSource("shelters", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "shelters-layer", type: "circle", source: "shelters", paint: { "circle-radius": 6, "circle-color": "#1565C0", "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+  }
+  if (!map.getSource("volunteers")) {
+    map.addSource("volunteers", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "volunteers-layer", type: "circle", source: "volunteers", paint: { "circle-radius": 6, "circle-color": "#FF8C00", "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+  }
+  if (!map.getSource("corridor")) {
+    map.addSource("corridor", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "corridor-fill", type: "fill", source: "corridor", paint: { "fill-color": "rgba(30,60,120,0.15)" } });
+    map.addLayer({ id: "corridor-outline", type: "line", source: "corridor", paint: { "line-color": "#ED1B2E", "line-width": 2 } });
+  }
+  if (!map.getSource("highlight")) {
+    map.addSource("highlight", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "highlight-point", type: "circle", source: "highlight", paint: { "circle-radius": 8, "circle-color": "#ED1B2E", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+  }
+
+  // Re-load data into sources
+  fetchAndBuildSVI();
+  fetchAndBuildNRI();
+  loadPointData(_currentStateAbbr);
+}
+
+// ── Basemap picker ──────────────────────────────────────────────────────────
+function toggleBasemapPicker() {
+  const picker = document.getElementById("bm-picker");
+  if (picker.style.display === "none") {
+    picker.innerHTML = "";
+    BASEMAPS.forEach((bm, i) => {
+      const btn = document.createElement("button");
+      btn.textContent = bm.name;
+      const isActive = i === _bmIdx;
+      btn.style.cssText = "display:block;width:100%;background:" + (isActive ? "rgba(165,28,48,0.25)" : "none") + ";border:none;border-bottom:1px solid rgba(255,255,255,0.08);color:" + (isActive ? "#fff" : "rgba(255,255,255,0.65)") + ";font-family:Arial,sans-serif;font-size:12px;font-weight:" + (isActive ? "700" : "400") + ";padding:10px 16px;cursor:pointer;text-align:left";
+      btn.onclick = () => {
+        _bmIdx = i;
+        map.setStyle(bm.url);
+        localStorage.setItem("selectedBasemap", bm.url);
+        map.once("style.load", () => { reinitMapLayers(); });
+        toggleBasemapPicker();
+      };
+      picker.appendChild(btn);
+    });
+    picker.style.display = "block";
+  } else {
+    picker.style.display = "none";
+  }
+}
+window.toggleBasemapPicker = toggleBasemapPicker;
+
+document.addEventListener("click", (e) => {
+  const picker = document.getElementById("bm-picker");
+  const btn = document.getElementById("bm-btn");
+  if (picker && picker.style.display !== "none" && !picker.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+    picker.style.display = "none";
+  }
+});
+
+// ── Filter analyze button ───────────────────────────────────────────────────
+document.getElementById("filter-analyze-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("filter-analyze-btn");
+  const resultsDiv = document.getElementById("filter-analysis-results");
+  btn.disabled = true;
+  btn.textContent = "Analyzing...";
+  resultsDiv.style.display = "block";
+  resultsDiv.innerHTML = `<em style="color:var(--text-muted)">Loading...</em>`;
+
+  try {
+    const bounds = map.getBounds();
+    const viewGEOIDs = new Set();
+
+    // Get visible tracts from SVI/NRI data
+    const sviVis = map.getLayoutProperty("svi-fill", "visibility") === "visible";
+    const nriVis = map.getLayoutProperty("nri-fill", "visibility") === "visible";
+    const sviMin = parseInt(document.getElementById("svi-filter").value) / 100;
+    const nriMin = parseInt(document.getElementById("nri-filter").value);
+
+    if (sviVis && window._sviFullMap) {
+      window._sviFullMap.forEach((row, geoid) => {
+        if (sviMin > 0 && (row.rpl_themes === null || row.rpl_themes < sviMin)) return;
+        viewGEOIDs.add(geoid);
+      });
+    }
+    if (nriVis && window._nriMap) {
+      window._nriMap.forEach((row, geoid) => {
+        if (nriMin > 0 && (row.risk_score === null || row.risk_score < nriMin)) return;
+        viewGEOIDs.add(geoid);
+      });
+    }
+
+    if (!viewGEOIDs.size) {
+      resultsDiv.innerHTML = `<em style="color:var(--text-muted)">No filtered tracts</em>`;
+      btn.disabled = false; btn.textContent = "Analyze Filtered Tracts (in view)";
+      return;
+    }
+
+    const tractGeoids = [...viewGEOIDs];
+    const inFilter = `in.(${tractGeoids.join(",")})`;
+    const countyFips = [...new Set(tractGeoids.map(g => g.slice(0, 5)))];
+    const countyFilter = `in.(${countyFips.join(",")})`;
+
+    const [sviRows, nriRows, aliceRows, femaRows] = await Promise.all([
+      sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
+      sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
+      sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
+      sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
+    ]);
+
+    const fmt = n => Number(n).toLocaleString();
+    const validSVI = sviRows.filter(r => r.rpl_themes >= 0);
+    const totalPop = validSVI.reduce((s, r) => s + (r.e_totpop || 0), 0);
+    const avgRpl = avg(validSVI, "rpl_themes");
+
+    resultsDiv.innerHTML = `
+      <div class="corr-header">Filtered Analysis</div><hr class="corr-divider">
+      <div class="corr-row"><span>Tracts:</span><span><strong>${tractGeoids.length}</strong></span></div>
+      ${totalPop > 0 ? `<div class="corr-row"><span>Population:</span><span><strong>${fmt(totalPop)}</strong></span></div>` : ""}
+      ${avgRpl != null ? `<div class="corr-row"><span>Avg SVI:</span><span><strong>${Math.round(avgRpl * 100)}%</strong></span></div>` : ""}
+    `;
+  } catch (err) {
+    resultsDiv.innerHTML = `<em style="color:#c00">Error: ${err.message}</em>`;
+  }
+  btn.disabled = false; btn.textContent = "Analyze Filtered Tracts (in view)";
+});
+
+// ── Help overlay ────────────────────────────────────────────────────────────
+function showHelp() {
+  alert("Spatial RAG — Disaster Response\n\nMapLibre GL JS Edition\nBuilt by Jeff Franzen · American Red Cross\n\nUse Layers tab to toggle SVI/NRI choropleth overlays.\nUse Query tab for natural language queries.\nUse Analyze tab to draw spatial selections.");
+}
+window.showHelp = showHelp;

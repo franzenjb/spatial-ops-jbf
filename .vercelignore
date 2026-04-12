@@ -1,0 +1,5 @@
+data/
+*.py
+*.csv
+pipeline/
+node_modules/

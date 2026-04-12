@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spatial RAG — Disaster Response</title>
+
+  <!-- MapLibre GL JS -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+  <!-- MapLibre GL Draw (for sketch tools) -->
+  <link rel="stylesheet" href="https://unpkg.com/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.css">
+  <script src="https://unpkg.com/@mapbox/mapbox-gl-draw@1.4.3/dist/mapbox-gl-draw.js"></script>
+
+  <!-- Turf.js for spatial analysis -->
+  <script src="https://unpkg.com/@turf/turf@7/turf.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-main: #fff;
+      --bg-panel: #fff;
+      --bg-toolbar: #1a1a1a;
+      --bg-section: #f0ece7;
+      --bg-loading: rgba(245, 240, 235, 0.85);
+      --text-primary: #333;
+      --text-secondary: #555;
+      --text-muted: #888;
+      --border-color: #e8e2dc;
+      --border-panel: #a51c30;
+      --accent: #a51c30;
+    }
+    body.dark {
+      --bg-main: #14181e;
+      --bg-panel: #1a1e26;
+      --bg-toolbar: #10131a;
+      --bg-section: rgba(255,255,255,0.04);
+      --bg-loading: rgba(20, 24, 30, 0.9);
+      --text-primary: #e0e6ed;
+      --text-secondary: #b0bac6;
+      --text-muted: #667788;
+      --border-color: rgba(255,255,255,0.08);
+      --border-panel: #a51c30;
+      --accent: #a51c30;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+      background: var(--bg-main);
+      color: var(--text-primary);
+    }
+
+    /* ── Top bar ──────────────────────────────────────────── */
+    #top-bar {
+      height: 48px;
+      background: #a51c30;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px 0 12px;
+      flex-shrink: 0;
+      z-index: 100;
+    }
+    #top-bar-left {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    #top-bar-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.2px;
+      line-height: 1.2;
+    }
+    #top-bar-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.75);
+      line-height: 1.2;
+    }
+    #top-stats {
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+    .top-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0 14px;
+    }
+    .top-stat strong {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.2;
+    }
+    .top-stat span {
+      font-size: 10px;
+      color: rgba(255,255,255,0.75);
+      line-height: 1.2;
+    }
+    .top-divider {
+      width: 1px;
+      height: 28px;
+      background: rgba(255,255,255,0.3);
+    }
+
+    /* ── Main area ────────────────────────────────────────── */
+    #main-area {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Floating Action Bar (map overlay) ───────────────── */
+    #fab {
+      position: absolute;
+      bottom: 32px;
+      left: 12px;
+      z-index: 20;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 0;
+      padding: 0;
+      background: rgba(20, 20, 24, 0.88);
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    body.dark #fab { background: rgba(10, 12, 18, 0.92); }
+    .fab-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 8px 12px;
+      background: transparent;
+      border: none;
+      border-right: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.5);
+      white-space: nowrap;
+      transition: color 0.15s, background 0.15s;
+      letter-spacing: 0.3px;
+    }
+    .fab-btn:last-child { border-right: none; }
+    .fab-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.8); }
+    .fab-btn.active { color: #fff; }
+    .fab-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; opacity: 0.4; }
+    .fab-btn.active .fab-dot { opacity: 1; }
+    .fab-square { width: 8px; height: 8px; border-radius: 1px; flex-shrink: 0; opacity: 0.4; }
+    .fab-btn.active .fab-square { opacity: 1; }
+    .fab-diamond { width: 7px; height: 7px; flex-shrink: 0; background: #FF8C00; border: 1px solid #A05000; transform: rotate(45deg); opacity: 0.4; }
+    .fab-btn.active .fab-diamond { opacity: 1; }
+    .fab-sep { display: none; }
+    .fab-btn.reset-btn { font-size: 10px; color: rgba(255,255,255,0.45); letter-spacing: 0.5px; text-transform: uppercase; }
+    .fab-btn.reset-btn:hover { color: rgba(255,255,255,0.8); }
+
+    /* ── Tab bar (right panel) ────────────────────────────── */
+    #panel-tabs {
+      display: flex;
+      align-items: stretch;
+      background: #a51c30;
+      flex-shrink: 0;
+      min-width: 360px;
+    }
+    .panel-tab {
+      flex: 1;
+      padding: 10px 8px;
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: rgba(255,255,255,0.65);
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      position: relative;
+    }
+    .panel-tab:hover { color: rgba(255,255,255,0.9); }
+    .panel-tab.active { color: #fff; border-bottom-color: #fff; }
+    .panel-tab .tab-indicator {
+      display: none;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #fff;
+      position: absolute;
+      top: 6px; right: 8px;
+      animation: corridorPulse 1s infinite;
+    }
+    .panel-tab.drawing .tab-indicator { display: block; }
+    #panel-close {
+      background: none;
+      border: none;
+      color: rgba(255,255,255,0.7);
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0 12px;
+      flex-shrink: 0;
+    }
+    #panel-close:hover { color: #fff; }
+
+    /* ── Panel toggle button (map overlay) ────────────────── */
+    #panel-toggle {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 20;
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid rgba(0,0,0,0.15);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: #333;
+      transition: background 0.15s;
+    }
+    #panel-toggle:hover { background: #fff; }
+    body.dark #panel-toggle {
+      background: rgba(30,34,42,0.95);
+      border-color: rgba(255,255,255,0.1);
+      color: #e0e6ed;
+    }
+    body.dark #panel-toggle:hover { background: rgba(40,44,52,0.95); }
+
+    /* ── Map ──────────────────────────────────────────────── */
+    #map-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    #map-loading {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-loading);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: #555;
+      z-index: 10;
+    }
+    #map-loading.hidden { display: none; }
+
+    /* ── Right context panel ──────────────────────────────── */
+    #right-panel {
+      width: 0;
+      flex-shrink: 0;
+      overflow: hidden;
+      transition: width 0.25s ease;
+      background: var(--bg-panel);
+      border-left: 3px solid transparent;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    #right-panel.open {
+      width: 360px;
+      border-left-color: #a51c30;
+    }
+    .ctx-panel {
+      display: flex;
+      flex-direction: column;
+      width: 360px;
+      height: 100%;
+    }
+    .ctx-body {
+      flex: 1;
+      overflow-y: auto;
+      color: var(--text-primary);
+    }
+    .ctx-section {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .ctx-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+
+    /* ── Layers panel accordion ─────────────────────────────── */
+    .layers-acc { border-bottom: 1px solid var(--border-color, #ddd); }
+    .layers-acc-header {
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 0; cursor: pointer; font-size: 13px; font-weight: 600;
+      color: var(--text-primary, #333); user-select: none;
+    }
+    .layers-acc-header:hover { color: var(--accent, #a51c30); }
+    .layers-acc-arrow { font-size: 11px; transition: transform 0.2s; }
+    .layers-acc.open .layers-acc-arrow { transform: rotate(90deg); }
+    .layers-acc-body { display: none; padding: 0 0 10px 18px; }
+    .layers-acc.open .layers-acc-body { display: block; }
+
+    .dual-range {
+      -webkit-appearance: none; appearance: none;
+      background: transparent; height: 20px; margin: 0;
+      pointer-events: none; cursor: pointer;
+    }
+    .dual-range::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #41b6c4; border: 2px solid #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      pointer-events: auto; cursor: pointer;
+    }
+    .dual-range::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #41b6c4; border: 2px solid #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      pointer-events: auto; cursor: pointer;
+    }
+    .layer-toggle-btn {
+      padding: 4px 12px; font-size: 11px; font-weight: 700;
+      font-family: Arial, sans-serif; border: 1px solid #bbb;
+      border-radius: 3px; background: #f0f0f0; color: #555;
+      cursor: pointer; white-space: nowrap;
+    }
+    .layer-toggle-btn.active { background: #2c3e50; color: #fff; border-color: #2c3e50; }
+    #nri-toggle.active { background: #6c3483; border-color: #6c3483; }
+    #tb-combined.active { background: #a51c30; border-color: #a51c30; color: #fff; }
+
+    /* ── Legend ───────────────────────────────────────────── */
+    .legend-block {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    #legend {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #444;
+    }
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-square {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      border-radius: 2px;
+    }
+    .legend-diamond {
+      width: 9px;
+      height: 9px;
+      flex-shrink: 0;
+      background: #FF8C00;
+      border: 1.5px solid #A05000;
+      transform: rotate(45deg);
+      margin: 1px 2px;
+    }
+
+    /* ── Corridor controls ────────────────────────────────── */
+    #corridor-section { }
+    #corridor-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      color: #555;
+    }
+    #corridor-miles {
+      flex: 1;
+      cursor: pointer;
+      accent-color: #a51c30;
+    }
+    #corridor-buttons-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .analysis-btn {
+      flex: 1;
+      min-width: 60px;
+      padding: 8px 4px;
+      background: #a51c30;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: Arial, sans-serif;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      transition: background 0.15s;
+    }
+    .analysis-btn:hover { background: #c8001a; }
+    .analysis-btn.drawing {
+      background: #c8001a;
+      animation: corridorPulse 1s infinite;
+    }
+    @keyframes corridorPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.65; }
+    }
+    #corridor-clear-btn {
+      padding: 8px 12px;
+      background: #666;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: Arial, sans-serif;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      text-transform: uppercase;
+    }
+    #corridor-clear-btn:hover { background: #444; }
+
+    /* ── Accordion ─────────────────────────────────────────── */
+    .acc-header {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #999;
+      cursor: pointer;
+      background: #faf7f5;
+      user-select: none;
+      transition: background 0.15s, color 0.15s;
+      border-bottom: 1px solid #e8e2dc;
+    }
+    .acc-header:hover { background: var(--bg-section); color: var(--text-secondary); }
+    .acc-header.is-open { color: #a51c30; background: #fff; }
+    .acc-arrow { font-size: 9px; flex-shrink: 0; line-height: 1; }
+    .acc-label { flex: 1; }
+    .acc-body {
+      overflow: hidden;
+      max-height: 2000px;
+      transition: max-height 0.28s ease;
+    }
+    .acc-body.closed {
+      max-height: 0;
+      transition: max-height 0.18s ease;
+    }
+    #acc-corridor-results.active > .acc-header {
+      background: #fff0f0;
+      border-left: 3px solid #a51c30;
+      padding-left: 11px;
+      color: #a51c30;
+    }
+    #acc-corridor-results.active > .acc-header .acc-arrow { color: #a51c30; }
+
+    /* ── Corridor results panel ───────────────────────────── */
+    #corridor-results {
+      padding: 10px 14px;
+      background: #fff8f8;
+      font-size: 12px;
+    }
+    .corr-header {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #a51c30;
+      margin: 8px 0 3px;
+    }
+    .corr-header:first-child { margin-top: 0; }
+    .corr-divider {
+      border: none;
+      border-top: 1px solid #f0cece;
+      margin: 3px 0 6px;
+    }
+    .corr-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 3px 0;
+      color: #333;
+    }
+    .corr-row span { color: #555; font-size: 12px; }
+    .corr-row span strong { color: #222; }
+    .corr-chapter { font-size: 11px; color: #666; margin: 2px 0; }
+
+    /* ── Result cards ─────────────────────────────────────── */
+    .result-card {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-panel);
+      transition: background 0.1s;
+    }
+    .result-card:hover { background: var(--bg-section); }
+    .result-title { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px; }
+    .result-meta { font-size: 11px; color: var(--text-secondary); }
+    .result-chapter { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .result-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    .badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; }
+    .badge-red { background: rgba(237,27,46,0.12); color: #c41e3a; }
+    .badge-green { background: rgba(46,125,50,0.12); color: #2e7d32; }
+    .badge-blue { background: rgba(21,101,192,0.12); color: #1565c0; }
+    .badge-orange { background: rgba(230,81,0,0.12); color: #e65100; }
+    .badge-gray { background: rgba(0,0,0,0.06); color: #888; }
+    #results-list { overflow-y: auto; }
+    #no-results { padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
+    /* ── Query UI ─────────────────────────────────────────── */
+    #query-input {
+      width: 100%; padding: 10px; font-size: 13px; font-family: Arial, sans-serif;
+      border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 8px;
+      background: var(--bg-section); color: var(--text-primary);
+    }
+    #query-btn {
+      width: 100%; padding: 10px; font-size: 13px; font-weight: 700;
+      background: #a51c30; color: #fff; border: none; border-radius: 4px; cursor: pointer;
+      font-family: Arial, sans-serif; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    #query-btn:hover { background: #c8001a; }
+    #query-status { font-size: 11px; color: var(--text-muted); margin-top: 6px; min-height: 16px; }
+    .query-example {
+      display: block; width: 100%; text-align: left; padding: 6px 10px; margin-bottom: 4px;
+      font-size: 11px; font-family: Arial, sans-serif; border: 1px solid rgba(165,28,48,0.2);
+      border-radius: 4px; background: rgba(165,28,48,0.05); color: var(--text-secondary);
+      cursor: pointer; transition: background 0.1s;
+    }
+    .query-example:hover { background: rgba(165,28,48,0.12); }
+
+    /* ── Tract popup styles ───────────────────────────────── */
+    .tp-hero { text-align: center; padding: 14px 8px; background: #faf7f5; border-radius: 8px; margin-bottom: 12px; }
+    .tp-hero-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: #888; }
+    .tp-hero-score { font-size: 36px; font-weight: 800; line-height: 1.2; }
+    .tp-hero-cat { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+    .tp-hero-tract { font-size: 11px; color: #999; }
+    .tp-dual { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tp-dual-card { flex: 1; text-align: center; padding: 10px 4px; background: #faf7f5; border-radius: 6px; }
+    .tp-dual-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: #888; }
+    .tp-dual-score { font-size: 28px; font-weight: 800; }
+    .tp-dual-cat { font-size: 11px; font-weight: 600; }
+    .tp-section { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #a51c30; margin: 14px 0 6px; padding-top: 8px; border-top: 1px solid var(--border-color); }
+    .tp-bar-row { margin-bottom: 6px; }
+    .tp-bar-head { display: flex; justify-content: space-between; font-size: 11px; color: #555; margin-bottom: 2px; }
+    .tp-bar-track { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+    .tp-bar-fill { height: 100%; border-radius: 3px; }
+    .tp-kv { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f0f0f0; }
+    .tp-kv-key { font-size: 11px; color: #888; }
+    .tp-kv-val { font-size: 11px; font-weight: 600; color: #333; }
+
+    /* ── Dark mode overrides ──────────────────────────────── */
+    body.dark .ctx-section { border-bottom-color: rgba(255,255,255,0.06); background: #1a1e26; }
+    body.dark .ctx-section-title { color: var(--text-muted); }
+    body.dark .acc-header { color: var(--text-muted); background: #1a1e26; border-bottom-color: rgba(255,255,255,0.06); }
+    body.dark .acc-header:hover { background: rgba(255,255,255,0.04); }
+    body.dark .acc-header.is-open { color: #a51c30; background: #1a1e26; }
+    body.dark .acc-body { color: #b0bac6; background: #1a1e26; }
+    body.dark #acc-corridor-results.active > .acc-header { background: rgba(237,27,46,0.12); }
+    body.dark #corridor-results { background: #1a1e26; }
+    body.dark .corr-header { color: #a51c30; }
+    body.dark .corr-row { color: #b0bac6; }
+    body.dark .corr-row span { color: #b0bac6; }
+    body.dark .corr-row span strong { color: #e0e6ed; }
+    body.dark .corr-divider { border-top-color: rgba(255,255,255,0.08); }
+    body.dark .corr-chapter { color: #b0bac6; }
+    body.dark #corridor-slider-row { color: var(--text-secondary); }
+    body.dark #corridor-slider-row label { color: #b0bac6; }
+    body.dark .result-card { background: rgba(255,255,255,0.04); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+    body.dark .result-card:hover { background: rgba(255,255,255,0.08); }
+    body.dark .result-title { color: var(--text-primary); }
+    body.dark .result-meta { color: var(--text-secondary); }
+    body.dark .result-chapter { color: var(--text-muted); }
+    body.dark #results-list { background: #1a1e26; }
+    body.dark #no-results { color: var(--text-muted); background: #1a1e26; }
+    body.dark .badge-red { background: rgba(237,27,46,0.15); color: #ff6b7a; }
+    body.dark .badge-green { background: rgba(46,125,50,0.15); color: #6bcf7f; }
+    body.dark .badge-blue { background: rgba(21,101,192,0.15); color: #6baaff; }
+    body.dark .badge-orange { background: rgba(230,81,0,0.15); color: #ffaa5c; }
+    body.dark .badge-gray { background: rgba(255,255,255,0.08); color: #b0bac6; }
+    body.dark .legend-item { color: var(--text-secondary); }
+    body.dark #map-loading { color: var(--text-secondary); }
+    body.dark #query-input { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); color: var(--text-primary); }
+    body.dark .query-example { background: rgba(237,27,46,0.12); border-color: rgba(237,27,46,0.25); color: var(--text-secondary); }
+    body.dark .query-example:hover { background: rgba(237,27,46,0.25); }
+    body.dark #query-status { color: var(--text-muted); }
+    body.dark #query-section label { color: var(--text-muted); }
+    body.dark #svi-toggle { background: rgba(255,255,255,0.06); color: var(--text-secondary); border-color: rgba(255,255,255,0.12); }
+    body.dark #nri-toggle { background: rgba(255,255,255,0.06); color: var(--text-secondary); border-color: rgba(255,255,255,0.12); }
+    body.dark #nri-hazard { background: rgba(255,255,255,0.06); color: var(--text-secondary); border-color: rgba(255,255,255,0.12); }
+    body.dark #svi-status, body.dark #nri-status { color: var(--text-muted); }
+    body.dark #dark-toggle { background: rgba(255,255,255,0.15); }
+    body.dark #state-select { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+    #state-select option { background: #1a1a1a; color: #fff; }
+    body.dark .tp-hero { background: rgba(255,255,255,0.06); }
+    body.dark .tp-dual-card { background: rgba(255,255,255,0.04); }
+    body.dark .tp-section { color: #8899aa; border-top-color: rgba(255,255,255,0.06); }
+    body.dark .tp-bar-head { color: #ccdaeb; }
+    body.dark .tp-bar-track { background: rgba(255,255,255,0.08); }
+    body.dark .tp-kv { border-bottom-color: rgba(255,255,255,0.04); }
+    body.dark .tp-kv-key { color: #8899aa; }
+    body.dark .tp-kv-val { color: #ccdaeb; }
+    body.dark .tp-hero-label { color: #8899aa; }
+    body.dark .tp-hero-tract { color: #667788; }
+    body.dark .tp-dual-label { color: #8899aa; }
+
+    /* Hide MapLibre Draw controls — we drive it programmatically */
+    .mapbox-gl-draw_ctrl-draw-btn { display: none !important; }
+    .mapboxgl-ctrl-group.mapboxgl-ctrl { display: none !important; }
+
+    /* MapLibre popup overrides */
+    .maplibregl-popup-content { max-width: 340px; padding: 0; }
+  </style>
+</head>
+<body>
+
+<!-- ── Top bar ──────────────────────────────────────────── -->
+<div id="top-bar">
+  <div id="top-bar-left">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div id="top-bar-title">Spatial RAG — Disaster Response</div>
+      <select id="state-select" onchange="switchState(this.value)" style="padding:3px 8px;font-size:12px;font-weight:600;border:1px solid rgba(255,255,255,0.3);border-radius:3px;background:rgba(255,255,255,0.12);color:#fff;cursor:pointer;font-family:Arial,sans-serif"></select>
+    </div>
+    <div id="top-bar-sub">Loading...</div>
+  </div>
+  <div id="top-stats">
+    <button onclick="showHelp()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:12px;padding:3px 9px;border-radius:50%;cursor:pointer;margin-right:8px;font-weight:700" title="Help & About">?</button>
+    <button id="dark-toggle" onclick="toggleDarkMode()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:11px;padding:4px 10px;border-radius:4px;cursor:pointer;margin-right:10px;font-weight:600;letter-spacing:0.3px" title="Toggle dark mode">☀ Light</button>
+    <div class="top-stat"><strong id="stat-fires">—</strong><span>Fires</span></div>
+    <div class="top-divider"></div>
+    <div class="top-stat"><strong id="stat-no-response">—</strong><span>No RC</span></div>
+    <div class="top-divider"></div>
+    <div class="top-stat"><strong id="stat-shelters">—</strong><span>Shelters</span></div>
+    <div class="top-divider"></div>
+    <div class="top-stat"><strong id="stat-volunteers">—</strong><span>Volunteers</span></div>
+  </div>
+</div>
+
+<!-- ── Main area ────────────────────────────────────────── -->
+<div id="main-area">
+
+  <!-- ── Map ────────────────────────────────────────────── -->
+  <div id="map-container">
+    <!-- Floating Action Bar -->
+    <div id="fab">
+      <button class="fab-btn active" id="fab-fires" onclick="window.toggleMapLayer('fire')" title="Toggle Fires">
+        <span class="fab-dot" style="background:#ED1B2E"></span>Fires
+      </button>
+      <button class="fab-btn active" id="fab-shelters" onclick="window.toggleMapLayer('shelter')" title="Toggle Shelters">
+        <span class="fab-square" style="background:#1565C0"></span>Shelters
+      </button>
+      <button class="fab-btn active" id="fab-volunteers" onclick="window.toggleMapLayer('volunteer')" title="Toggle Volunteers">
+        <span class="fab-diamond"></span>Volunteers
+      </button>
+      <button class="fab-btn" id="fab-parcels" onclick="window.toggleMapLayer('parcel')" title="Toggle Parcels (Florida)">
+        <span class="fab-dot" style="background:#41b6c4"></span>Parcels
+      </button>
+      <button class="fab-btn reset-btn" onclick="resetMap()" title="Reset Map">↺ Reset</button>
+    </div>
+
+    <button id="panel-toggle" onclick="togglePanel()" title="Toggle side panel">☰</button>
+    <div id="parcel-legend" style="display:none;position:absolute;bottom:72px;left:12px;z-index:90;background:rgba(30,30,30,0.92);border-radius:8px;padding:10px 14px;font-size:11px;color:#eee;box-shadow:0 2px 8px rgba(0,0,0,0.4);pointer-events:auto">
+      <div style="font-weight:700;margin-bottom:6px;font-size:12px">Parcel Assessed Value</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="width:12px;height:12px;border-radius:50%;background:rgb(65,182,196);display:inline-block"></span> Under $50K</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="width:12px;height:12px;border-radius:50%;background:rgb(127,205,187);display:inline-block"></span> $50K–$150K</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="width:12px;height:12px;border-radius:50%;background:rgb(199,233,180);display:inline-block"></span> $150K–$300K</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="width:12px;height:12px;border-radius:50%;background:rgb(255,255,178);display:inline-block"></span> $300K–$500K</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="width:12px;height:12px;border-radius:50%;background:rgb(254,178,76);display:inline-block"></span> $500K–$1M</div>
+      <div style="display:flex;align-items:center;gap:6px;margin:3px 0"><span style="width:12px;height:12px;border-radius:50%;background:rgb(240,59,32);display:inline-block"></span> $1M+</div>
+    </div>
+    <div id="map"></div>
+    <div id="map-loading">Loading layers...</div>
+
+    <!-- ── Basemap picker ──────────────────────────────── -->
+    <div id="bm-picker" style="display:none;position:absolute;bottom:70px;right:8px;z-index:201;background:rgba(30,30,30,0.92);border-radius:8px;overflow:hidden;min-width:120px;box-shadow:0 4px 16px rgba(0,0,0,0.4)"></div>
+    <button id="bm-btn" onclick="toggleBasemapPicker()" title="Change basemap" style="position:absolute;bottom:28px;right:8px;z-index:200;width:36px;height:36px;border-radius:8px;border:none;background:rgba(20,20,24,0.88);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.3);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+    </button>
+
+    <div id="map-footer" style="position:absolute;bottom:0;left:0;right:0;height:22px;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:flex-end;padding:0 10px;z-index:10;font-size:10px;color:rgba(255,255,255,0.7)">
+      Built by <a href="https://jbf.com" target="_blank" style="color:rgba(255,255,255,0.85);margin:0 3px">Jeff Franzen</a> · American Red Cross · <a href="mailto:jeff.franzen@redcross.org" style="color:rgba(255,255,255,0.85);margin-left:3px">Contact</a>
+    </div>
+  </div>
+
+  <!-- ── Right context panel ────────────────────────────── -->
+  <div id="right-panel" class="open" data-active="layers">
+
+    <!-- Tab bar -->
+    <div id="panel-tabs">
+      <button class="panel-tab active" data-tab="layers" onclick="switchTab('layers')">Layers</button>
+      <button class="panel-tab" data-tab="query" onclick="switchTab('query')">Query</button>
+      <button class="panel-tab" data-tab="corridor" onclick="switchTab('corridor')">Analyze<span class="tab-indicator"></span></button>
+      <button id="panel-close" onclick="closePanel()">✕</button>
+    </div>
+
+    <!-- PANEL: layers -->
+    <div id="ctx-layers" class="ctx-panel">
+      <div class="ctx-body" style="padding:6px 10px 0">
+
+        <!-- SVI accordion -->
+        <div class="layers-acc">
+          <div class="layers-acc-header" onclick="this.parentElement.classList.toggle('open')">
+            <span class="layers-acc-arrow">▸</span>
+            <span style="flex:1">Social Vulnerability Index</span>
+            <button id="svi-toggle" class="layer-toggle-btn" onclick="event.stopPropagation()">OFF</button>
+          </div>
+          <div class="layers-acc-body">
+            <span id="svi-status" style="font-size:11px;color:#888;display:block;margin-bottom:6px"></span>
+            <div class="legend-block">
+              <div class="legend-item"><div class="legend-square" style="background:#c0392b"></div>0.75–1.0 Very High</div>
+              <div class="legend-item"><div class="legend-square" style="background:#e74c3c"></div>0.50–0.75 High</div>
+              <div class="legend-item"><div class="legend-square" style="background:#f39c12"></div>0.25–0.50 Moderate</div>
+              <div class="legend-item"><div class="legend-square" style="background:#f9e79f;border:1px solid #ccc;"></div>0.00–0.25 Low</div>
+              <div class="legend-item"><div class="legend-square" style="background:#cccccc"></div>No data</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- NRI accordion -->
+        <div class="layers-acc">
+          <div class="layers-acc-header" onclick="this.parentElement.classList.toggle('open')">
+            <span class="layers-acc-arrow">▸</span>
+            <span style="flex:1">National Risk Index</span>
+            <button id="nri-toggle" class="layer-toggle-btn" onclick="event.stopPropagation()">OFF</button>
+          </div>
+          <div class="layers-acc-body">
+            <div style="margin-bottom:8px">
+              <label style="font-size:11px;color:#888">Hazard type:</label>
+              <select id="nri-hazard" style="width:100%;margin-top:3px;padding:4px 6px;font-size:12px;border:1px solid #bbb;border-radius:3px;background:var(--bg-section,#fff);color:var(--text-primary,#333)">
+                <option value="risk_score">Overall Risk</option>
+                <option value="hrcn_risks">Hurricane</option>
+                <option value="cfld_risks">Coastal Flood</option>
+                <option value="ifld_risks">Inland Flood</option>
+                <option value="trnd_risks">Tornado</option>
+                <option value="wfir_risks">Wildfire</option>
+                <option value="hwav_risks">Heat Wave</option>
+              </select>
+            </div>
+            <span id="nri-status" style="font-size:11px;color:#888;display:block;margin-bottom:6px"></span>
+            <div class="legend-block">
+              <div class="legend-item"><div class="legend-square" style="background:#7b2d8b"></div>80–100 Very High</div>
+              <div class="legend-item"><div class="legend-square" style="background:#c0392b"></div>60–80 High</div>
+              <div class="legend-item"><div class="legend-square" style="background:#e67e22"></div>40–60 Moderate</div>
+              <div class="legend-item"><div class="legend-square" style="background:#f1c40f"></div>20–40 Low</div>
+              <div class="legend-item"><div class="legend-square" style="background:#ecf0f1;border:1px solid #ccc;"></div>0–20 Very Low</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Combined SVI+NRI -->
+        <div style="padding:8px 0;border-bottom:1px solid var(--border-color,#ddd)">
+          <button id="tb-combined" class="layer-toggle-btn" onclick="toggleCombinedLayer()" style="width:100%;padding:8px;font-size:13px;font-weight:700">Show SVI + NRI Combined</button>
+          <div id="filter-sliders" style="display:none;margin-top:10px">
+            <div style="margin-bottom:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <label style="font-size:11px;color:var(--text-secondary)">Min SVI Percentile</label>
+                <span id="svi-filter-val" style="font-size:11px;font-weight:700;color:#c0392b">0.00</span>
+              </div>
+              <input type="range" id="svi-filter" min="0" max="100" value="0" style="width:100%;accent-color:#c0392b;cursor:pointer">
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>Show all</span><span>High only</span></div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <label style="font-size:11px;color:var(--text-secondary)">Min NRI Risk Score</label>
+                <span id="nri-filter-val" style="font-size:11px;font-weight:700;color:#7b2d8b">0</span>
+              </div>
+              <input type="range" id="nri-filter" min="0" max="100" value="0" style="width:100%;accent-color:#7b2d8b;cursor:pointer">
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>Show all</span><span>High only</span></div>
+            </div>
+            <div id="filter-count" style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center"></div>
+            <button id="filter-analyze-btn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:12px;font-weight:700;background:#C41E3A;color:#fff;border:none;border-radius:4px;cursor:pointer">Analyze Filtered Tracts (in view)</button>
+            <div id="filter-analysis-results" style="display:none;margin-top:8px;font-size:12px;line-height:1.8"></div>
+          </div>
+        </div>
+
+        <!-- Parcels (Florida) -->
+        <div class="layers-acc">
+          <div class="layers-acc-header" onclick="this.parentElement.classList.toggle('open')">
+            <span class="layers-acc-arrow">▸</span>
+            <span style="flex:1">Parcels (Florida)</span>
+            <button id="parcel-toggle" class="layer-toggle-btn" onclick="event.stopPropagation()">OFF</button>
+          </div>
+          <div class="layers-acc-body">
+            <span id="parcel-status" style="font-size:11px;color:#888;display:block;margin-bottom:6px">Pan/zoom to load parcels</span>
+            <div style="margin-bottom:8px">
+              <select id="parcel-county" style="width:100%;padding:4px 8px;font-size:11px;border-radius:6px;border:1px solid #666;background:var(--bg-section,#fff);color:var(--text-primary,#333);margin-bottom:6px">
+                <option value="">All Counties (in view)</option>
+              </select>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+              <button class="parcel-chip active" data-pfilter="all" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:#41b6c4;color:#fff;cursor:pointer">All</button>
+              <button class="parcel-chip" data-pfilter="residential" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Residential</button>
+              <button class="parcel-chip" data-pfilter="old" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Pre-1970</button>
+              <button class="parcel-chip" data-pfilter="valuable" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$500K+</button>
+              <button class="parcel-chip" data-pfilter="lowvalue" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Under $50K</button>
+            </div>
+            <div style="margin-top:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <label style="font-size:11px;color:var(--text-secondary)">Year Built</label>
+                <span id="parcel-year-val" style="font-size:11px;font-weight:700;color:#41b6c4">Any</span>
+              </div>
+              <div style="position:relative;height:20px">
+                <input type="range" id="parcel-year-min" min="0" max="7" value="0" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
+                <input type="range" id="parcel-year-max" min="0" max="7" value="7" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>Pre-1920</span><span>2010+</span></div>
+            </div>
+            <div style="margin-top:6px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <label style="font-size:11px;color:var(--text-secondary)">Assessed Value</label>
+                <span id="parcel-val-val" style="font-size:11px;font-weight:700;color:#41b6c4">Any</span>
+              </div>
+              <div style="position:relative;height:20px">
+                <input type="range" id="parcel-val-min" min="0" max="10" value="0" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
+                <input type="range" id="parcel-val-max" min="0" max="10" value="10" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>$0</span><span>$2M+</span></div>
+            </div>
+            <div id="parcel-filter-count" style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center"></div>
+            <div class="legend-block" style="margin-top:6px">
+              <div class="legend-item"><div class="legend-square" style="background:rgb(65,182,196)"></div>Under $50K</div>
+              <div class="legend-item"><div class="legend-square" style="background:rgb(127,205,187)"></div>$50K–$150K</div>
+              <div class="legend-item"><div class="legend-square" style="background:rgb(199,233,180)"></div>$150K–$300K</div>
+              <div class="legend-item"><div class="legend-square" style="background:rgb(255,255,178)"></div>$300K–$500K</div>
+              <div class="legend-item"><div class="legend-square" style="background:rgb(254,178,76)"></div>$500K–$1M</div>
+              <div class="legend-item"><div class="legend-square" style="background:rgb(240,59,32)"></div>$1M+</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Point layers legend -->
+        <div class="layers-acc open">
+          <div class="layers-acc-header" onclick="this.parentElement.classList.toggle('open')">
+            <span class="layers-acc-arrow">▸</span>
+            <span style="flex:1">Point Layers</span>
+          </div>
+          <div class="layers-acc-body">
+            <div id="legend">
+              <div class="legend-item"><div class="legend-dot" style="background:#ED1B2E"></div>Fires — no RC response</div>
+              <div class="legend-item"><div class="legend-dot" style="background:#2E7D32"></div>Fires — RC responded</div>
+              <div class="legend-item"><div class="legend-square" style="background:#1565C0"></div>Shelters</div>
+              <div class="legend-item"><div class="legend-diamond"></div>Volunteers</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- PANEL: corridor -->
+    <div id="ctx-corridor" class="ctx-panel" style="display:none">
+      <div class="ctx-body">
+        <div class="ctx-section">
+          <div id="corridor-section">
+            <div id="corridor-slider-row">
+              <label for="corridor-miles">Buffer: <strong id="corridor-miles-val">5</strong> mi</label>
+              <input type="range" id="corridor-miles" min="1" max="25" value="5">
+            </div>
+            <div id="corridor-buttons-row">
+              <button id="corridor-draw-btn" class="analysis-btn" title="Draw a line along a route, coast, or path — buffered by the distance above">Line</button>
+              <button id="radius-drop-btn" class="analysis-btn" title="Click a point on the map — circle analysis at the distance above">Radius</button>
+              <button id="polygon-draw-btn" class="analysis-btn" title="Draw a freeform boundary — all features inside are analyzed">Polygon</button>
+              <button id="corridor-clear-btn" style="display:none">Clear</button>
+            </div>
+          </div>
+        </div>
+        <div id="acc-corridor-results">
+          <div class="acc-header" onclick="toggleAccordion('acc-corridor-results')">
+            <span class="acc-arrow">▶</span><span class="acc-label">Corridor Analysis</span>
+          </div>
+          <div class="acc-body closed">
+            <div style="font-size:11px;color:var(--text-secondary,#aaa);margin:2px 0 8px;font-style:italic">All data reflects tracts, parcels, and records within or touching the analysis area</div>
+            <div id="corridor-results"></div>
+          </div>
+        </div>
+        <div id="acc-results">
+          <div class="acc-header" onclick="toggleAccordion('acc-results')">
+            <span class="acc-arrow">▶</span><span class="acc-label">Results</span>
+          </div>
+          <div class="acc-body closed">
+            <div id="results-list">
+              <div id="no-results">Run a query or draw a corridor</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL: query -->
+    <div id="ctx-query" class="ctx-panel" style="display:none">
+      <div class="ctx-body">
+        <div class="ctx-section">
+          <div id="query-section">
+            <label>Natural language query</label>
+            <input type="text" id="query-input" placeholder="Ask anything about the data...">
+            <button id="query-btn">Search</button>
+            <div id="query-status"></div>
+            <div id="query-examples" style="margin-top:12px">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);font-weight:700;margin-bottom:6px">Census Tract Analysis</div>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Most socially vulnerable tracts in Florida</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Tracts with more than 30% elderly population</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Tracts with highest percentage of mobile homes</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Tracts in Pinellas County with high housing burden</button>
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);font-weight:700;margin:10px 0 6px">Hazard Risk</div>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Tracts with highest hurricane risk</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Tracts with wildfire risk above 50</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Tracts with highest flood risk in Miami-Dade</button>
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);font-weight:700;margin:10px 0 6px">Red Cross Operations</div>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Home fires with no Red Cross response</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Home fires with elderly present and major damage</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Open shelters with capacity over 50</button>
+              <button class="query-example" onclick="document.getElementById('query-input').value=this.textContent;document.getElementById('query-btn').click()">Certified volunteers within 20 miles of Tampa</button>
+            </div>
+            <div id="query-results-header" style="display:none;margin-top:14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#a51c30"></div>
+            <div id="query-results-list" style="margin-top:6px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL: feature info -->
+    <div id="ctx-feature" class="ctx-panel" style="display:none">
+      <div class="ctx-body" style="padding:0 12px 12px">
+        <div id="feature-info-title" style="font-size:15px;font-weight:700;padding:12px 0 8px;color:var(--text-primary);border-bottom:2px solid #a51c30;margin-bottom:4px"></div>
+        <div id="feature-info-content"></div>
+      </div>
+    </div>
+
+  </div><!-- #right-panel -->
+
+</div><!-- #main-area -->
+
+<script src="app.js"></script>
+
+</body>
+</html>
