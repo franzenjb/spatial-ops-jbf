@@ -183,11 +183,9 @@ var _radiusClickHandler = null;
 
 // ── MapLibre Map ────────────────────────────────────────────────────────────
 const savedBm = localStorage.getItem("selectedBasemap");
-const initStyle = savedBm || BASEMAPS[0].url;
-if (savedBm) {
-  const idx = BASEMAPS.findIndex(b => b.url === savedBm);
-  if (idx >= 0) _bmIdx = idx;
-}
+const savedIdx = savedBm ? BASEMAPS.findIndex(b => b.url === savedBm) : -1;
+if (savedIdx >= 0) _bmIdx = savedIdx;
+const initStyle = savedIdx >= 0 ? savedBm : BASEMAPS[0].url;
 
 const map = new maplibregl.Map({
   container: "map",
