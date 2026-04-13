@@ -238,14 +238,13 @@ map.on("load", async () => {
     layout: { visibility: "none" },
     paint: {
       "fill-color": [
-        "match", ["get", "v"],
-        0, "rgba(77,187,219,0.85)",
-        1, "rgba(143,212,164,0.85)",
-        2, "rgba(200,230,160,0.85)",
-        3, "rgba(245,213,110,0.85)",
-        4, "rgba(240,146,74,0.85)",
-        5, "rgba(224,59,46,0.85)",
-        "rgba(200,200,200,0.85)"
+        "step", ["get", "totalAssessedValue"],
+        "#4dbbdb",
+        50000, "#8fd4a4",
+        150000, "#c8e6a0",
+        300000, "#f5d56e",
+        500000, "#f0924a",
+        1000000, "#e03b2e"
       ],
       "fill-opacity": 0.85,
     },
@@ -510,8 +509,14 @@ async function loadPointData(stateAbbr) {
 }
 
 // ── TIGERweb tract geometry fetch ───────────────────────────────────────────
+var _tractPromise = null;
 async function fetchTIGERwebTracts(statusEl) {
   if (_tractFeatures) return _tractFeatures;
+  if (_tractPromise) return _tractPromise;
+  _tractPromise = _fetchTIGERwebTractsInner(statusEl);
+  return _tractPromise;
+}
+async function _fetchTIGERwebTractsInner(statusEl) {
 
   // Try local cache first
   try {
@@ -749,19 +754,17 @@ function applyParcelFilters() {
     const matchExpr = conditions.length === 1 ? conditions[0] : ["all", ...conditions];
     map.setPaintProperty("parcels-fill", "fill-color", [
       "case", matchExpr,
-      ["match", ["get", "v"],
-        0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)",
-        3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)",
-        "rgba(200,200,200,0.85)"],
+      ["step", ["get", "totalAssessedValue"],
+        "#4dbbdb", 50000, "#8fd4a4", 150000, "#c8e6a0",
+        300000, "#f5d56e", 500000, "#f0924a", 1000000, "#e03b2e"],
       "rgba(40,40,40,0.15)"
     ]);
     map.setPaintProperty("parcels-fill", "fill-opacity", ["case", matchExpr, 0.85, 0.08]);
   } else {
     map.setPaintProperty("parcels-fill", "fill-color", [
-      "match", ["get", "v"],
-      0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)",
-      3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)",
-      "rgba(200,200,200,0.85)"
+      "step", ["get", "totalAssessedValue"],
+      "#4dbbdb", 50000, "#8fd4a4", 150000, "#c8e6a0",
+      300000, "#f5d56e", 500000, "#f0924a", 1000000, "#e03b2e"
     ]);
     map.setPaintProperty("parcels-fill", "fill-opacity", 0.85);
   }
@@ -1830,7 +1833,7 @@ function reinitMapLayers() {
   // Re-add all custom sources and layers after basemap change
   if (!map.getSource("parcels-source")) {
     map.addSource("parcels-source", { type: "vector", tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt"], minzoom: 11, maxzoom: 16 });
-    map.addLayer({ id: "parcels-fill", type: "fill", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "fill-color": ["match", ["get", "v"], 0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)", 3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)", "rgba(200,200,200,0.85)"], "fill-opacity": 0.85 } });
+    map.addLayer({ id: "parcels-fill", type: "fill", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "fill-color": ["step", ["get", "totalAssessedValue"], "#4dbbdb", 50000, "#8fd4a4", 150000, "#c8e6a0", 300000, "#f5d56e", 500000, "#f0924a", 1000000, "#e03b2e"], "fill-opacity": 0.85 } });
     map.addLayer({ id: "parcels-outline", type: "line", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "line-color": "rgba(30,30,30,0.6)", "line-width": 0.5 } });
   }
   if (!map.getSource("svi-tracts")) {
