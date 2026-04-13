@@ -165,7 +165,7 @@ var _tractFeatures = null;
 var _isDrawing = false;
 var _parcelFetchTimer = null;
 var _parcelFilter = "all";
-var _parcelResOnly = false;
+// _parcelResOnly removed — tile data only contains "v" property
 var _parcelVisible = false;
 var _radiusClickHandler = null;
 
@@ -238,13 +238,14 @@ map.on("load", async () => {
     layout: { visibility: "none" },
     paint: {
       "fill-color": [
-        "step", ["get", "totalAssessedValue"],
-        "#4dbbdb",
-        50000, "#8fd4a4",
-        150000, "#c8e6a0",
-        300000, "#f5d56e",
-        500000, "#f0924a",
-        1000000, "#e03b2e"
+        "match", ["get", "v"],
+        0, "rgba(77,187,219,0.85)",
+        1, "rgba(143,212,164,0.85)",
+        2, "rgba(200,230,160,0.85)",
+        3, "rgba(245,213,110,0.85)",
+        4, "rgba(240,146,74,0.85)",
+        5, "rgba(224,59,46,0.85)",
+        "rgba(200,200,200,0.85)"
       ],
       "fill-opacity": 0.85,
     },
@@ -722,15 +723,7 @@ document.getElementById("parcel-toggle").addEventListener("click", () => {
 document.querySelectorAll(".parcel-chip").forEach(chip => {
   chip.addEventListener("click", () => {
     const f = chip.dataset.pfilter;
-    if (f === "residential") {
-      _parcelResOnly = !_parcelResOnly;
-      chip.classList.toggle("active", _parcelResOnly);
-      chip.style.background = _parcelResOnly ? "#41b6c4" : "transparent";
-      chip.style.color = _parcelResOnly ? "#fff" : "var(--text-primary,#333)";
-      applyParcelFilters();
-      return;
-    }
-    document.querySelectorAll(".parcel-chip:not([data-pfilter='residential'])").forEach(c => {
+    document.querySelectorAll(".parcel-chip").forEach(c => {
       c.classList.remove("active");
       c.style.background = "transparent";
       c.style.color = "var(--text-primary,#333)";
@@ -743,62 +736,30 @@ document.querySelectorAll(".parcel-chip").forEach(chip => {
   });
 });
 
+const PARCEL_MATCH = [
+  "match", ["get", "v"],
+  0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)",
+  3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)",
+  "rgba(200,200,200,0.85)"
+];
+
 function applyParcelFilters() {
   if (!_parcelVisible) return;
   const conditions = [];
-  if (_parcelFilter === "old")      conditions.push(["<", ["coalesce", ["get", "yearBuilt"], 9999], 1970]);
+  // Only filters that work with "v" property in tiles
   if (_parcelFilter === "valuable") conditions.push([">=", ["get", "v"], 4]);
   if (_parcelFilter === "lowvalue") conditions.push(["==", ["get", "v"], 0]);
-  if (_parcelResOnly) conditions.push(["==", ["get", "residential"], true]);
 
   if (conditions.length > 0) {
     const matchExpr = conditions.length === 1 ? conditions[0] : ["all", ...conditions];
-    map.setPaintProperty("parcels-fill", "fill-color", [
-      "case", matchExpr,
-      ["step", ["get", "totalAssessedValue"],
-        "#4dbbdb", 50000, "#8fd4a4", 150000, "#c8e6a0",
-        300000, "#f5d56e", 500000, "#f0924a", 1000000, "#e03b2e"],
-      "rgba(40,40,40,0.15)"
-    ]);
+    map.setPaintProperty("parcels-fill", "fill-color", ["case", matchExpr, PARCEL_MATCH, "rgba(40,40,40,0.15)"]);
     map.setPaintProperty("parcels-fill", "fill-opacity", ["case", matchExpr, 0.85, 0.08]);
   } else {
-    map.setPaintProperty("parcels-fill", "fill-color", [
-      "step", ["get", "totalAssessedValue"],
-      "#4dbbdb", 50000, "#8fd4a4", 150000, "#c8e6a0",
-      300000, "#f5d56e", 500000, "#f0924a", 1000000, "#e03b2e"
-    ]);
+    map.setPaintProperty("parcels-fill", "fill-color", PARCEL_MATCH);
     map.setPaintProperty("parcels-fill", "fill-opacity", 0.85);
   }
   document.getElementById("parcel-filter-count").textContent = conditions.length > 0 ? "Filter active" : "";
 }
-
-// Parcel sliders
-const YEAR_STOPS  = [0, 1920, 1940, 1960, 1970, 1980, 2000, 2010];
-const YEAR_LABELS = ["Any", "1920", "1940", "1960", "1970", "1980", "2000", "2010+"];
-const VAL_STOPS   = [0, 25000, 50000, 100000, 150000, 200000, 300000, 500000, 750000, 1000000, 2000000];
-const VAL_LABELS  = ["$0", "$25K", "$50K", "$100K", "$150K", "$200K", "$300K", "$500K", "$750K", "$1M", "$2M+"];
-
-["parcel-year-min", "parcel-year-max", "parcel-val-min", "parcel-val-max"].forEach(id => {
-  document.getElementById(id).addEventListener("input", (e) => {
-    if (id.endsWith("-min")) {
-      const maxEl = document.getElementById(id.replace("-min", "-max"));
-      if (parseInt(e.target.value) > parseInt(maxEl.value)) e.target.value = maxEl.value;
-    } else {
-      const minEl = document.getElementById(id.replace("-max", "-min"));
-      if (parseInt(e.target.value) < parseInt(minEl.value)) e.target.value = minEl.value;
-    }
-    // Update labels
-    const yMinIdx = parseInt(document.getElementById("parcel-year-min").value);
-    const yMaxIdx = parseInt(document.getElementById("parcel-year-max").value);
-    const vMinIdx = parseInt(document.getElementById("parcel-val-min").value);
-    const vMaxIdx = parseInt(document.getElementById("parcel-val-max").value);
-    const yearLabel = (yMinIdx === 0 && yMaxIdx >= YEAR_STOPS.length - 1) ? "Any" : `${YEAR_LABELS[yMinIdx]} – ${YEAR_LABELS[yMaxIdx]}`;
-    const valLabel = (vMinIdx === 0 && vMaxIdx >= VAL_STOPS.length - 1) ? "Any" : `${VAL_LABELS[vMinIdx]} – ${VAL_LABELS[vMaxIdx]}`;
-    document.getElementById("parcel-year-val").textContent = yearLabel;
-    document.getElementById("parcel-val-val").textContent = valLabel;
-    applyParcelFilters();
-  });
-});
 
 // ── Filter sliders (SVI/NRI) ────────────────────────────────────────────────
 function syncFilterSliders() {
@@ -1877,7 +1838,7 @@ function reinitMapLayers() {
   // Re-add all custom sources and layers after basemap change
   if (!map.getSource("parcels-source")) {
     map.addSource("parcels-source", { type: "vector", tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt"], minzoom: 11, maxzoom: 16 });
-    map.addLayer({ id: "parcels-fill", type: "fill", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "fill-color": ["step", ["get", "totalAssessedValue"], "#4dbbdb", 50000, "#8fd4a4", 150000, "#c8e6a0", 300000, "#f5d56e", 500000, "#f0924a", 1000000, "#e03b2e"], "fill-opacity": 0.85 } });
+    map.addLayer({ id: "parcels-fill", type: "fill", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "fill-color": ["match", ["get", "v"], 0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)", 3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)", "rgba(200,200,200,0.85)"], "fill-opacity": 0.85 } });
     map.addLayer({ id: "parcels-outline", type: "line", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "line-color": "rgba(30,30,30,0.6)", "line-width": 0.5 } });
   }
   if (!map.getSource("svi-tracts")) {

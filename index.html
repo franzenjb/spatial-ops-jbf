@@ -811,32 +811,8 @@
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
               <button class="parcel-chip active" data-pfilter="all" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:#41b6c4;color:#fff;cursor:pointer">All</button>
-              <button class="parcel-chip" data-pfilter="residential" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Residential</button>
-              <button class="parcel-chip" data-pfilter="old" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Pre-1970</button>
               <button class="parcel-chip" data-pfilter="valuable" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$500K+</button>
               <button class="parcel-chip" data-pfilter="lowvalue" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Under $50K</button>
-            </div>
-            <div style="margin-top:8px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                <label style="font-size:11px;color:var(--text-secondary)">Year Built</label>
-                <span id="parcel-year-val" style="font-size:11px;font-weight:700;color:#41b6c4">Any</span>
-              </div>
-              <div style="position:relative;height:20px">
-                <input type="range" id="parcel-year-min" min="0" max="7" value="0" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
-                <input type="range" id="parcel-year-max" min="0" max="7" value="7" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>Pre-1920</span><span>2010+</span></div>
-            </div>
-            <div style="margin-top:6px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                <label style="font-size:11px;color:var(--text-secondary)">Assessed Value</label>
-                <span id="parcel-val-val" style="font-size:11px;font-weight:700;color:#41b6c4">Any</span>
-              </div>
-              <div style="position:relative;height:20px">
-                <input type="range" id="parcel-val-min" min="0" max="10" value="0" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
-                <input type="range" id="parcel-val-max" min="0" max="10" value="10" class="dual-range" style="position:absolute;width:100%;pointer-events:none;accent-color:#41b6c4">
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>$0</span><span>$2M+</span></div>
             </div>
             <div id="parcel-filter-count" style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center"></div>
             <div class="legend-block" style="margin-top:6px">
