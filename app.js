@@ -1130,35 +1130,78 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
   toggleAccordion("acc-corridor-results", true);
 
   const el = document.getElementById("corridor-results");
-  const fmt = n => Number(n).toLocaleString();
   el.innerHTML = `
-    <div class="corr-header">Population & Demographics</div><hr class="corr-divider">
-    ${totalPop > 0 ? `<div class="corr-row"><span>Estimated population:</span><span><strong>${fmt(totalPop)}</strong></span></div>` : ""}
-    ${totalElderly > 0 ? `<div class="corr-row"><span>Age 65+:</span><span><strong>${fmt(totalElderly)}</strong></span></div>` : ""}
-    ${totalDisabled > 0 ? `<div class="corr-row"><span>Disabled:</span><span><strong>${fmt(totalDisabled)}</strong></span></div>` : ""}
-    <div class="corr-row"><span>Fires:</span><span><strong>${firesIn.length}</strong> (${noRC} no RC)</span></div>
+    <div class="corr-header">Population & Demographics</div>
+    <hr class="corr-divider">
+    ${totalPop > 0 ? `<div class="corr-row"><span>Estimated population:</span><span><strong>${totalPop.toLocaleString()}</strong></span></div>` : ""}
+    ${totalElderly > 0 ? `<div class="corr-row"><span>Age 65+:</span><span><strong>${totalElderly.toLocaleString()}</strong></span></div>` : ""}
+    ${totalDisabled > 0 ? `<div class="corr-row"><span>Disabled:</span><span><strong>${totalDisabled.toLocaleString()}</strong></span></div>` : ""}
+    <div class="corr-row"><span>Fires:</span><span><strong>${firesIn.length}</strong> (${noRC} no RC response)</span></div>
     <div class="corr-row"><span>Shelters:</span><span><strong>${sheltsIn.length}</strong></span></div>
-    <div class="corr-row"><span>Volunteers:</span><span><strong>${volsIn.length}</strong></span></div>
-    ${aliceRows.length ? `<div class="corr-header" style="margin-top:10px">ALICE</div><hr class="corr-divider">
-      <div class="corr-row"><span>Avg struggling:</span><span><strong>${avgStruggling}%</strong></span></div>
-      <div class="corr-row"><span>Avg median income:</span><span><strong>$${fmt(avgMedian)}</strong></span></div>` : ""}
-    ${validSVI.length ? `<div class="corr-header" style="margin-top:10px">SVI</div><hr class="corr-divider">
-      <div class="corr-row"><span>Tracts:</span><span>${validSVI.length}</span></div>
-      <div class="corr-row"><span>Avg vulnerability:</span><span><strong>${Math.round(avgRpl * 100)}%</strong></span></div>` : ""}
-    ${validNRI.length ? `<div class="corr-header" style="margin-top:10px">NRI</div><hr class="corr-divider">
-      <div class="corr-row"><span>Avg risk:</span><span><strong>${Math.round(avg(validNRI, "risk_score"))}</strong></span></div>
-      <div class="corr-row"><span>Hurricane:</span><span><strong>${Math.round(avg(validNRI, "hrcn_risks"))}</strong></span></div>
-      <div class="corr-row"><span>Flood:</span><span><strong>${Math.round(avg(validNRI.map(r => ({ flood: flood(r) })), "flood"))}</strong></span></div>
-      <div class="corr-row"><span>EAL:</span><span><strong>$${fmt(Math.round(totalEAL))}</strong></span></div>` : ""}
-    ${femaRows.length ? `<div class="corr-header" style="margin-top:10px">FEMA</div><hr class="corr-divider">
-      <div class="corr-row"><span>Declarations:</span><span><strong>${totalDecl}</strong></span></div>
-      <div class="corr-row"><span>Hurricanes:</span><span><strong>${totalHurr}</strong></span></div>` : ""}
-    ${chapters.length ? `<div class="corr-header" style="margin-top:10px">RC Chapters</div><hr class="corr-divider">
-      ${chapters.map(([ch, n]) => `<div class="corr-chapter">• ${ch}: ${n} fire${n !== 1 ? "s" : ""}</div>`).join("")}` : ""}
-    ${parcelStats && parcelStats.total_parcels > 0 ? `<div class="corr-header" style="margin-top:10px">Parcels</div><hr class="corr-divider">
-      <div class="corr-row"><span>Total:</span><span><strong>${fmt(parcelStats.total_parcels)}</strong></span></div>
-      <div class="corr-row"><span>Residential:</span><span><strong>${fmt(parcelStats.residential)}</strong></span></div>
-      <div class="corr-row"><span>Avg assessed:</span><span><strong>$${fmt(parcelStats.avg_assessed)}</strong></span></div>` : ""}
+    <div class="corr-row"><span>DAT Volunteers:</span><span><strong>${volsIn.length}</strong></span></div>
+
+    ${aliceRows.length ? `
+    <div class="corr-header" style="margin-top:10px">Economic Hardship (ALICE)</div>
+    <hr class="corr-divider">
+    <div class="corr-row"><span>Counties in area:</span><span>${aliceRows.length}</span></div>
+    <div class="corr-row"><span>Avg struggling (ALICE+poverty):</span><span><strong>${avgStruggling}%</strong></span></div>
+    <div class="corr-row"><span>Avg median income:</span><span><strong>$${avgMedian.toLocaleString()}</strong></span></div>
+    ${aliceRows.map(r => `<div class="corr-chapter">• ${r.county_name}: <strong>${r.pct_struggling}%</strong> struggling ($${r.median_income.toLocaleString()})</div>`).join("")}
+    ` : ""}
+
+    ${validSVI.length ? `
+    <div class="corr-header" style="margin-top:10px">Social Vulnerability (SVI)</div>
+    <hr class="corr-divider">
+    <div class="corr-row"><span>Affected tracts:</span><span>${validSVI.length}</span></div>
+    <div class="corr-row"><span>Avg vulnerability:</span><span><strong>${Math.round(avgRpl * 100)}%</strong></span></div>
+    <div class="corr-row"><span>Socioeconomic:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme1") * 100)}%</strong></span></div>
+    <div class="corr-row"><span>Household:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme2") * 100)}%</strong></span></div>
+    <div class="corr-row"><span>Minority:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme3") * 100)}%</strong></span></div>
+    <div class="corr-row"><span>Housing:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme4") * 100)}%</strong></span></div>
+    ` : `<div class="corr-row" style="color:#999;margin-top:6px;font-size:11px;">No SVI data</div>`}
+
+    ${validNRI.length ? `
+    <div class="corr-header" style="margin-top:10px">NRI Hazard Risk</div>
+    <hr class="corr-divider">
+    <div class="corr-row"><span>Avg risk score:</span><span><strong>${Math.round(avg(validNRI, "risk_score"))}</strong></span></div>
+    <div class="corr-row"><span>Hurricane:</span><span><strong>${Math.round(avg(validNRI, "hrcn_risks"))}</strong></span></div>
+    <div class="corr-row"><span>Flood (max coastal/inland):</span><span><strong>${Math.round(avg(validNRI.map(r => ({ flood: flood(r) })), "flood"))}</strong></span></div>
+    <div class="corr-row"><span>Tornado:</span><span><strong>${Math.round(avg(validNRI, "trnd_risks"))}</strong></span></div>
+    <div class="corr-row"><span>Wildfire:</span><span><strong>${Math.round(avg(validNRI, "wfir_risks"))}</strong></span></div>
+    <div class="corr-row"><span>Expected annual loss:</span><span><strong>$${Math.round(totalEAL).toLocaleString()}</strong></span></div>
+    ` : ""}
+
+    ${femaRows.length ? `
+    <div class="corr-header" style="margin-top:10px">FEMA Disaster History</div>
+    <hr class="corr-divider">
+    <div class="corr-row"><span>Total declarations:</span><span><strong>${totalDecl}</strong></span></div>
+    <div class="corr-row"><span>Hurricane declarations:</span><span><strong>${totalHurr}</strong></span></div>
+    ${femaRows.map(r => `<div class="corr-chapter">• ${r.fips_5}: ${r.total_declarations} declarations (last: ${r.most_recent_title?.trim()})</div>`).join("")}
+    ` : ""}
+
+    ${chapters.length ? `
+    <div class="corr-header" style="margin-top:10px">RC Chapters in Corridor</div>
+    <hr class="corr-divider">
+    ${chapters.map(([ch, n]) => `<div class="corr-chapter">• ${ch}: ${n} fire${n !== 1 ? "s" : ""}</div>`).join("")}
+    ` : ""}
+
+    ${parcelStats && parcelStats.total_parcels > 0 ? `
+    <div class="corr-header" style="margin-top:10px">Property Data (Florida Parcels)</div>
+    <hr class="corr-divider">
+    <div class="corr-row"><span>Total parcels:</span><span><strong>${Number(parcelStats.total_parcels).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Residential:</span><span><strong>${Number(parcelStats.residential).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Commercial/Other:</span><span><strong>${Number(parcelStats.commercial).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Avg assessed value:</span><span><strong>$${Number(parcelStats.avg_assessed).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Median assessed:</span><span><strong>$${Number(parcelStats.median_assessed).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Total assessed value:</span><span><strong>$${Number(parcelStats.total_assessed).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Avg year built:</span><span><strong>${parcelStats.avg_year_built}</strong></span></div>
+    <div class="corr-row"><span>Pre-1970:</span><span><strong>${Number(parcelStats.pre_1970).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Post-2000:</span><span><strong>${Number(parcelStats.post_2000).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Avg sq ft:</span><span><strong>${Number(parcelStats.avg_sqft).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Total acres:</span><span><strong>${Number(parcelStats.total_acres).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Over $500K:</span><span><strong>${Number(parcelStats.over_500k).toLocaleString()}</strong></span></div>
+    <div class="corr-row"><span>Over $1M:</span><span><strong>${Number(parcelStats.over_1m).toLocaleString()}</strong></span></div>
+    ` : ""}
   `;
 }
 
