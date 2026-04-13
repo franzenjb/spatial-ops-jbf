@@ -6,9 +6,9 @@ const PARCEL_API   = "https://florida-parcels-production.up.railway.app";
 
 // ── Basemap styles (free) ─────────────────────────────────────────────────
 const BASEMAPS = [
-  { name: "Streets",    url: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json" },
+  { name: "Light",      url: "https://tiles.openfreemap.org/styles/positron" },
   { name: "Dark",       url: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" },
-  { name: "Light",      url: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json" },
+  { name: "Streets",    url: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json" },
   { name: "OSM Liberty", url: "https://tiles.openfreemap.org/styles/liberty" },
 ];
 var _bmIdx = 0;
