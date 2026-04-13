@@ -398,25 +398,26 @@ map.on("load", async () => {
       if (parcelFeats.length > 0) {
         const lat = e.lngLat.lat;
         const lng = e.lngLat.lng;
+        const d = 0.0005; // ~50m bbox
         showFeaturePanel("Parcel", `<div style="font-size:13px;color:#888">Loading parcel details…</div>`);
         try {
-          const resp = await fetch(`${PARCEL_API}/api/parcels?lat=${lat}&lng=${lng}&radius=50&limit=1`);
+          const resp = await fetch(`${PARCEL_API}/api/parcels?xmin=${lng-d}&ymin=${lat-d}&xmax=${lng+d}&ymax=${lat+d}&limit=1`);
           const data = await resp.json();
-          const a = data?.[0] || {};
+          const feat = (data?.features || [])[0];
+          const a = feat?.properties || {};
           const fmt = (v) => v != null ? Number(v).toLocaleString() : 'N/A';
-          const title = a.address ? `${a.address}, ${a.city || ''} ${a.zipCode || ''}` : (a.parcelId || 'Parcel');
+          const title = a.addr ? `${a.addr}, ${a.city || ''} ${a.zip || ''}` : 'Parcel';
           showFeaturePanel(title, `<div style="font-size:13px;line-height:2">
-            <b>Parcel ID:</b> ${a.parcelId || 'N/A'}<br>
-            <b>Owner:</b> ${a.ownerName || 'N/A'}<br>
+            <b>Owner:</b> ${a.owner || 'N/A'}<br>
             <b>County:</b> ${a.county || 'N/A'}<br>
-            <b>Assessed Value:</b> $${fmt(a.totalAssessedValue)}<br>
-            <b>Market Value:</b> $${fmt(a.totalMarketValue)}<br>
-            <b>Year Built:</b> ${a.yearBuilt || 'N/A'}<br>
-            <b>Sq Ft:</b> ${fmt(a.buildingArea)}<br>
-            <b>Bed/Bath:</b> ${a.totalBedrooms || 0} / ${a.totalBathrooms || 0}<br>
+            <b>Assessed Value:</b> $${fmt(a.val)}<br>
+            <b>Market Value:</b> $${fmt(a.mv)}<br>
+            <b>Year Built:</b> ${a.yb || 'N/A'}<br>
+            <b>Sq Ft:</b> ${fmt(a.sf)}<br>
+            <b>Bed/Bath:</b> ${a.bd || 0} / ${a.ba || 0}<br>
             <b>Acres:</b> ${a.acres || 'N/A'}<br>
-            <b>Pool:</b> ${a.pool ? 'Yes' : 'No'}<br>
-            <b>Residential:</b> ${a.residential ? 'Yes' : 'No'}<br>
+            <b>Use Code:</b> ${a.uc || 'N/A'}<br>
+            <b>Residential:</b> ${a.res ? 'Yes' : 'No'}<br>
           </div>`);
         } catch (_) {
           showFeaturePanel("Parcel", `<div style="font-size:13px;color:#f44">Failed to load parcel details</div>`);
