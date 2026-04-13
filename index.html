@@ -16,6 +16,10 @@
   <!-- Turf.js for spatial analysis -->
   <script src="https://unpkg.com/@turf/turf@7/turf.min.js"></script>
 
+  <!-- noUiSlider for dual-handle range sliders -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -318,24 +322,15 @@
     .layers-acc-body { display: none; padding: 0 0 10px 18px; }
     .layers-acc.open .layers-acc-body { display: block; }
 
-    .dual-range {
-      -webkit-appearance: none; appearance: none;
-      background: transparent; height: 20px; margin: 0;
-      pointer-events: none; cursor: pointer;
-    }
-    .dual-range::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none;
-      width: 16px; height: 16px; border-radius: 50%;
-      background: #41b6c4; border: 2px solid #fff;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-      pointer-events: auto; cursor: pointer;
-    }
-    .dual-range::-moz-range-thumb {
-      width: 14px; height: 14px; border-radius: 50%;
-      background: #41b6c4; border: 2px solid #fff;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-      pointer-events: auto; cursor: pointer;
-    }
+    /* noUiSlider theme overrides */
+    .noUi-target { background: #ddd; border: none; box-shadow: none; height: 6px; border-radius: 3px; }
+    .noUi-connect { background: #41b6c4; }
+    .noUi-handle { width: 16px !important; height: 16px !important; border-radius: 50% !important;
+      background: #41b6c4 !important; border: 2px solid #fff !important;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important; top: -6px !important; right: -8px !important; cursor: pointer; }
+    .noUi-handle::before, .noUi-handle::after { display: none; }
+    .dark .noUi-target { background: #444; }
+    .dark .noUi-handle { border-color: #333 !important; }
     .layer-toggle-btn {
       padding: 4px 12px; font-size: 11px; font-weight: 700;
       font-family: Arial, sans-serif; border: 1px solid #bbb;
@@ -811,8 +806,26 @@
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
               <button class="parcel-chip active" data-pfilter="all" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:#41b6c4;color:#fff;cursor:pointer">All</button>
-              <button class="parcel-chip" data-pfilter="valuable" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$500K+</button>
-              <button class="parcel-chip" data-pfilter="lowvalue" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Under $50K</button>
+              <button class="parcel-chip" data-pfilter="residential" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Residential</button>
+              <button class="parcel-chip" data-pfilter="under250k" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Under $250K</button>
+              <button class="parcel-chip" data-pfilter="250k-500k" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$250K–$500K</button>
+              <button class="parcel-chip" data-pfilter="500k-750k" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$500K–$750K</button>
+              <button class="parcel-chip" data-pfilter="750k-1m" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$750K–$1M</button>
+              <button class="parcel-chip" data-pfilter="1m+" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$1M+</button>
+            </div>
+            <div style="margin-top:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <label style="font-size:11px;color:var(--text-secondary)">Year Built</label>
+                <span id="parcel-year-label" style="font-size:11px;font-weight:700;color:#41b6c4">1900 – 2024</span>
+              </div>
+              <div id="parcel-year-slider" style="margin:0 6px 12px 6px"></div>
+            </div>
+            <div style="margin-top:4px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <label style="font-size:11px;color:var(--text-secondary)">Assessed Value</label>
+                <span id="parcel-val-label" style="font-size:11px;font-weight:700;color:#41b6c4">$0 – $2M+</span>
+              </div>
+              <div id="parcel-val-slider" style="margin:0 6px 12px 6px"></div>
             </div>
             <div id="parcel-filter-count" style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center"></div>
             <div class="legend-block" style="margin-top:6px">

@@ -165,7 +165,7 @@ var _tractFeatures = null;
 var _isDrawing = false;
 var _parcelFetchTimer = null;
 var _parcelFilter = "all";
-// _parcelResOnly removed — tile data only contains "v" property
+// Parcel filter state
 var _parcelVisible = false;
 var _radiusClickHandler = null;
 
@@ -399,29 +399,59 @@ map.on("load", async () => {
       if (parcelFeats.length > 0) {
         const lat = e.lngLat.lat;
         const lng = e.lngLat.lng;
-        const d = 0.0005; // ~50m bbox
+        const tileProps = parcelFeats[0].properties || {};
+        const d = 0.002; // ~200m bbox to ensure we get nearby parcels
         showFeaturePanel("Parcel", `<div style="font-size:13px;color:#888">Loading parcel details…</div>`);
         try {
-          const resp = await fetch(`${PARCEL_API}/api/parcels?xmin=${lng-d}&ymin=${lat-d}&xmax=${lng+d}&ymax=${lat+d}&limit=1`);
+          const resp = await fetch(`${PARCEL_API}/api/parcels?xmin=${lng-d}&ymin=${lat-d}&xmax=${lng+d}&ymax=${lat+d}&limit=20`);
           const data = await resp.json();
-          const feat = (data?.features || [])[0];
-          const a = feat?.properties || {};
-          const fmt = (v) => v != null ? Number(v).toLocaleString() : 'N/A';
-          const title = a.addr ? `${a.addr}, ${a.city || ''} ${a.zip || ''}` : 'Parcel';
-          showFeaturePanel(title, `<div style="font-size:13px;line-height:2">
-            <b>Owner:</b> ${a.owner || 'N/A'}<br>
-            <b>County:</b> ${a.county || 'N/A'}<br>
-            <b>Assessed Value:</b> $${fmt(a.val)}<br>
-            <b>Market Value:</b> $${fmt(a.mv)}<br>
-            <b>Year Built:</b> ${a.yb || 'N/A'}<br>
-            <b>Sq Ft:</b> ${fmt(a.sf)}<br>
-            <b>Bed/Bath:</b> ${a.bd || 0} / ${a.ba || 0}<br>
-            <b>Acres:</b> ${a.acres || 'N/A'}<br>
-            <b>Use Code:</b> ${a.uc || 'N/A'}<br>
-            <b>Residential:</b> ${a.res ? 'Yes' : 'No'}<br>
-          </div>`);
+          const feats = data?.features || [];
+          // Find closest feature to click point
+          let best = null, bestDist = Infinity;
+          for (const f of feats) {
+            const c = f.geometry?.coordinates;
+            if (!c) continue;
+            const dx = c[0] - lng, dy = c[1] - lat;
+            const dist = dx * dx + dy * dy;
+            if (dist < bestDist) { bestDist = dist; best = f; }
+          }
+          const a = best?.properties || {};
+          const hasData = a.addr || a.owner || a.val || a.county;
+          if (hasData) {
+            const fmt = (v) => v != null ? Number(v).toLocaleString() : 'N/A';
+            const title = a.addr ? `${a.addr}, ${a.city || ''} ${a.zip || ''}` : 'Parcel';
+            showFeaturePanel(title, `<div style="font-size:13px;line-height:2">
+              <b>Owner:</b> ${a.owner || 'N/A'}<br>
+              <b>County:</b> ${a.county || 'N/A'}<br>
+              <b>Assessed Value:</b> $${fmt(a.val)}<br>
+              <b>Market Value:</b> $${fmt(a.mv)}<br>
+              <b>Year Built:</b> ${a.yb || 'N/A'}<br>
+              <b>Sq Ft:</b> ${fmt(a.sf)}<br>
+              <b>Bed/Bath:</b> ${a.bd || 0} / ${a.ba || 0}<br>
+              <b>Acres:</b> ${a.acres || 'N/A'}<br>
+              <b>Use Code:</b> ${a.uc || 'N/A'}<br>
+              <b>Residential:</b> ${a.res ? 'Yes' : 'No'}<br>
+            </div>`);
+          } else {
+            // Fall back to tile properties
+            const vLabels = ["Under $50K", "$50K–$150K", "$150K–$300K", "$300K–$500K", "$500K–$1M", "$1M+"];
+            showFeaturePanel("Parcel", `<div style="font-size:13px;line-height:2">
+              <b>Value Range:</b> ${vLabels[tileProps.v] || 'Unknown'}<br>
+              ${tileProps.val ? `<b>Assessed Value:</b> $${Number(tileProps.val).toLocaleString()}<br>` : ''}
+              ${tileProps.yb ? `<b>Year Built:</b> ${tileProps.yb}<br>` : ''}
+              <b>Residential:</b> ${tileProps.res ? 'Yes' : 'No'}<br>
+              <div style="margin-top:6px;color:#999;font-size:11px">Limited data — detailed records not available for this parcel</div>
+            </div>`);
+          }
         } catch (_) {
-          showFeaturePanel("Parcel", `<div style="font-size:13px;color:#f44">Failed to load parcel details</div>`);
+          // Network error — show tile properties as fallback
+          const vLabels = ["Under $50K", "$50K–$150K", "$150K–$300K", "$300K–$500K", "$500K–$1M", "$1M+"];
+          showFeaturePanel("Parcel", `<div style="font-size:13px;line-height:2">
+            <b>Value Range:</b> ${vLabels[tileProps.v] || 'Unknown'}<br>
+            ${tileProps.val ? `<b>Assessed Value:</b> $${Number(tileProps.val).toLocaleString()}<br>` : ''}
+            ${tileProps.yb ? `<b>Year Built:</b> ${tileProps.yb}<br>` : ''}
+            <b>Residential:</b> ${tileProps.res ? 'Yes' : 'No'}<br>
+          </div>`);
         }
         return;
       }
@@ -720,9 +750,25 @@ document.getElementById("parcel-toggle").addEventListener("click", () => {
 })();
 
 // ── Parcel filter chips ─────────────────────────────────────────────────────
+const PARCEL_MATCH = [
+  "match", ["get", "v"],
+  0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)",
+  3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)",
+  "rgba(200,200,200,0.85)"
+];
+
+const PARCEL_CHIP_FILTERS = {
+  "all":         null,
+  "residential": ["==", ["get", "res"], 1],
+  "under250k":   ["<", ["get", "val"], 250000],
+  "250k-500k":   ["all", [">=", ["get", "val"], 250000], ["<", ["get", "val"], 500000]],
+  "500k-750k":   ["all", [">=", ["get", "val"], 500000], ["<", ["get", "val"], 750000]],
+  "750k-1m":     ["all", [">=", ["get", "val"], 750000], ["<", ["get", "val"], 1000000]],
+  "1m+":         [">=", ["get", "val"], 1000000],
+};
+
 document.querySelectorAll(".parcel-chip").forEach(chip => {
   chip.addEventListener("click", () => {
-    const f = chip.dataset.pfilter;
     document.querySelectorAll(".parcel-chip").forEach(c => {
       c.classList.remove("active");
       c.style.background = "transparent";
@@ -731,24 +777,79 @@ document.querySelectorAll(".parcel-chip").forEach(chip => {
     chip.classList.add("active");
     chip.style.background = "#41b6c4";
     chip.style.color = "#fff";
-    _parcelFilter = f;
+    _parcelFilter = chip.dataset.pfilter;
     applyParcelFilters();
   });
 });
 
-const PARCEL_MATCH = [
-  "match", ["get", "v"],
-  0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)",
-  3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)",
-  "rgba(200,200,200,0.85)"
-];
+// ── Parcel dual-handle sliders (noUiSlider) ────────────────────────────────
+var _yearRange = [1900, 2024];
+var _valRange  = [0, 2000000];
+
+const yearSliderEl = document.getElementById("parcel-year-slider");
+noUiSlider.create(yearSliderEl, {
+  start: [1900, 2024], connect: true, step: 1,
+  range: { min: 1900, max: 2024 },
+  format: { to: v => Math.round(v), from: v => Number(v) },
+});
+yearSliderEl.noUiSlider.on("update", (values) => {
+  _yearRange = [Number(values[0]), Number(values[1])];
+  const label = (_yearRange[0] === 1900 && _yearRange[1] === 2024) ? "Any" : `${_yearRange[0]} – ${_yearRange[1]}`;
+  document.getElementById("parcel-year-label").textContent = label;
+  applyParcelFilters();
+});
+
+const valSliderEl = document.getElementById("parcel-val-slider");
+const VAL_STEPS = [0, 25000, 50000, 100000, 150000, 200000, 250000, 300000, 400000, 500000, 750000, 1000000, 1500000, 2000000];
+noUiSlider.create(valSliderEl, {
+  start: [0, 2000000], connect: true,
+  range: { min: 0, max: 2000000 },
+  snap: true,
+  range: (function() {
+    const r = { min: [0] };
+    VAL_STEPS.forEach((v, i) => {
+      if (i === 0 || i === VAL_STEPS.length - 1) return;
+      const pct = Math.round((i / (VAL_STEPS.length - 1)) * 100);
+      r[pct + "%"] = [v];
+    });
+    r.max = [2000000];
+    return r;
+  })(),
+  format: { to: v => Math.round(v), from: v => Number(v) },
+});
+function fmtVal(v) {
+  if (v >= 1000000) return `$${(v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1)}M`;
+  if (v >= 1000) return `$${Math.round(v / 1000)}K`;
+  return `$${v}`;
+}
+valSliderEl.noUiSlider.on("update", (values) => {
+  _valRange = [Number(values[0]), Number(values[1])];
+  const label = (_valRange[0] === 0 && _valRange[1] === 2000000) ? "$0 – $2M+" : `${fmtVal(_valRange[0])} – ${fmtVal(_valRange[1])}${_valRange[1] === 2000000 ? "+" : ""}`;
+  document.getElementById("parcel-val-label").textContent = label;
+  applyParcelFilters();
+});
 
 function applyParcelFilters() {
   if (!_parcelVisible) return;
   const conditions = [];
-  // Only filters that work with "v" property in tiles
-  if (_parcelFilter === "valuable") conditions.push([">=", ["get", "v"], 4]);
-  if (_parcelFilter === "lowvalue") conditions.push(["==", ["get", "v"], 0]);
+
+  // Chip filter
+  const chipFilter = PARCEL_CHIP_FILTERS[_parcelFilter];
+  if (chipFilter) conditions.push(chipFilter);
+
+  // Year Built slider
+  if (_yearRange[0] > 1900 || _yearRange[1] < 2024) {
+    if (_yearRange[0] > 1900) conditions.push([">=", ["get", "yb"], _yearRange[0]]);
+    if (_yearRange[1] < 2024) conditions.push(["<=", ["get", "yb"], _yearRange[1]]);
+    // Exclude parcels with yb=0 (unknown) when year filter is active
+    conditions.push([">", ["get", "yb"], 0]);
+  }
+
+  // Assessed Value slider
+  if (_valRange[0] > 0 || _valRange[1] < 2000000) {
+    if (_valRange[0] > 0) conditions.push([">=", ["get", "val"], _valRange[0]]);
+    if (_valRange[1] < 2000000) conditions.push(["<=", ["get", "val"], _valRange[1]]);
+  }
 
   if (conditions.length > 0) {
     const matchExpr = conditions.length === 1 ? conditions[0] : ["all", ...conditions];
