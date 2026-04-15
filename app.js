@@ -164,7 +164,7 @@ var _currentStateAbbr = "FL";
 var _tractFeatures = null;
 var _isDrawing = false;
 var _parcelFetchTimer = null;
-var _parcelFilter = "all";
+var _parcelFilter = "all"; // legacy — replaced by _parcelTypeFilter + _activeValChips
 // Parcel filter state
 var _parcelVisible = false;
 var _radiusClickHandler = null;
@@ -757,27 +757,37 @@ const PARCEL_MATCH = [
   "rgba(200,200,200,0.85)"
 ];
 
-const PARCEL_CHIP_FILTERS = {
-  "all":         null,
-  "residential": ["==", ["get", "res"], 1],
+const PARCEL_VAL_FILTERS = {
   "under250k":   ["<", ["get", "val"], 250000],
   "250k-500k":   ["all", [">=", ["get", "val"], 250000], ["<", ["get", "val"], 500000]],
   "500k-750k":   ["all", [">=", ["get", "val"], 500000], ["<", ["get", "val"], 750000]],
   "750k-1m":     ["all", [">=", ["get", "val"], 750000], ["<", ["get", "val"], 1000000]],
   "1m+":         [">=", ["get", "val"], 1000000],
 };
+var _parcelTypeFilter = "all";          // "all" or "residential"
+var _activeValChips   = new Set();      // multi-select value chips
 
-document.querySelectorAll(".parcel-chip").forEach(chip => {
+function styleChip(el, active) {
+  if (active) { el.classList.add("active"); el.style.background = "#41b6c4"; el.style.color = "#fff"; }
+  else        { el.classList.remove("active"); el.style.background = "transparent"; el.style.color = "var(--text-primary,#333)"; }
+}
+
+// Type chips — single-select (All / Residential)
+document.querySelectorAll(".parcel-chip-type").forEach(chip => {
   chip.addEventListener("click", () => {
-    document.querySelectorAll(".parcel-chip").forEach(c => {
-      c.classList.remove("active");
-      c.style.background = "transparent";
-      c.style.color = "var(--text-primary,#333)";
-    });
-    chip.classList.add("active");
-    chip.style.background = "#41b6c4";
-    chip.style.color = "#fff";
-    _parcelFilter = chip.dataset.pfilter;
+    document.querySelectorAll(".parcel-chip-type").forEach(c => styleChip(c, false));
+    styleChip(chip, true);
+    _parcelTypeFilter = chip.dataset.ptype;
+    applyParcelFilters();
+  });
+});
+
+// Value chips — multi-select toggle
+document.querySelectorAll(".parcel-chip-val").forEach(chip => {
+  chip.addEventListener("click", () => {
+    const key = chip.dataset.pval;
+    if (_activeValChips.has(key)) { _activeValChips.delete(key); styleChip(chip, false); }
+    else                          { _activeValChips.add(key);    styleChip(chip, true);  }
     applyParcelFilters();
   });
 });
@@ -833,9 +843,16 @@ function applyParcelFilters() {
   if (!_parcelVisible) return;
   const conditions = [];
 
-  // Chip filter
-  const chipFilter = PARCEL_CHIP_FILTERS[_parcelFilter];
-  if (chipFilter) conditions.push(chipFilter);
+  // Type filter (All / Residential)
+  if (_parcelTypeFilter === "residential") conditions.push(["==", ["get", "res"], 1]);
+
+  // Value chip filters — OR together when multiple selected
+  if (_activeValChips.size > 0) {
+    const valExprs = [];
+    _activeValChips.forEach(key => { if (PARCEL_VAL_FILTERS[key]) valExprs.push(PARCEL_VAL_FILTERS[key]); });
+    if (valExprs.length === 1) conditions.push(valExprs[0]);
+    else if (valExprs.length > 1) conditions.push(["any", ...valExprs]);
+  }
 
   // Year Built slider
   if (_yearRange[0] > 1900 || _yearRange[1] < 2024) {

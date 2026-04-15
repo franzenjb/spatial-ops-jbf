@@ -1,4 +1,5 @@
 {
+  "alias": ["ops.jbf.com"],
   "functions": {
     "api/interpret.js": {
       "memory": 256,
