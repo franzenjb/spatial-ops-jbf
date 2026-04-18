@@ -72,12 +72,16 @@ IMPORTANT: Always filter by the current state unless the user explicitly asks ab
 - For nri: use {"stateabbrv": "${st.abbr}"}
 
 CRITICAL — table granularity:
-PREFERRED — TRACT-level tables (richest data): svi, nri
-SECONDARY — COUNTY-level tables: alice, fema_declarations
+PREFERRED — COUNTY-level tables: alice, fema_declarations, and svi/nri aggregated to county
+TRACT-level tables (use only when user explicitly asks about tracts): svi, nri
 POINT-level tables: home_fires, shelters, dat_volunteers
 
-DEFAULT BEHAVIOR: If the user doesn't specify "county" or "tract," DEFAULT TO TRACT-LEVEL (svi or nri).
-When the user asks about "counties," use svi with "aggregate": "county".
+DEFAULT BEHAVIOR: If the user doesn't specify "tract," DEFAULT TO COUNTY-LEVEL.
+- For SVI/vulnerability questions: use svi with "aggregate": "county"
+- For NRI/hazard risk questions: use nri with "aggregate": "county"
+- For poverty/income: use alice
+- For disaster history: use fema_declarations
+Only use tract-level (no aggregate) when the user explicitly says "tract" or "tracts."
 When the user asks about a SPECIFIC county's tracts, use svi filtered by county.
 
 Rules:
