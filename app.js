@@ -2,7 +2,7 @@
 const SUPABASE_URL = "https://qoskpyfgimjcmmxunfji.supabase.co";
 const ANON_KEY     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFvc2tweWZnaW1qY21teHVuZmppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMjY0MzAsImV4cCI6MjA5MDcwMjQzMH0.oTa6xhNAQ8eW_Bur-uKvBPBpWkPD2SpaahgcSFysVPY";
 const HEADERS      = { "apikey": ANON_KEY, "Authorization": `Bearer ${ANON_KEY}` };
-const PARCEL_API   = "https://florida-parcels-production.up.railway.app";
+const PARCEL_API   = "https://florida-parcels-production-fd39.up.railway.app";
 
 // ── Basemap styles (free) ─────────────────────────────────────────────────
 const BASEMAPS = [
@@ -430,7 +430,6 @@ map.on("load", async () => {
               <b>Bed/Bath:</b> ${a.bd || 0} / ${a.ba || 0}<br>
               <b>Acres:</b> ${a.acres || 'N/A'}<br>
               <b>Use Code:</b> ${a.uc || 'N/A'}<br>
-              <b>Residential:</b> ${a.res ? 'Yes' : 'No'}<br>
             </div>`);
           } else {
             // Fall back to tile properties
@@ -440,6 +439,7 @@ map.on("load", async () => {
               ${tileProps.val ? `<b>Assessed Value:</b> $${Number(tileProps.val).toLocaleString()}<br>` : ''}
               ${tileProps.yb ? `<b>Year Built:</b> ${tileProps.yb}<br>` : ''}
               <b>Residential:</b> ${tileProps.res ? 'Yes' : 'No'}<br>
+              ${tileProps.uc ? `<b>Use Code:</b> ${tileProps.uc}<br>` : ''}
               <div style="margin-top:6px;color:#999;font-size:11px">Limited data — detailed records not available for this parcel</div>
             </div>`);
           }
@@ -451,6 +451,7 @@ map.on("load", async () => {
             ${tileProps.val ? `<b>Assessed Value:</b> $${Number(tileProps.val).toLocaleString()}<br>` : ''}
             ${tileProps.yb ? `<b>Year Built:</b> ${tileProps.yb}<br>` : ''}
             <b>Residential:</b> ${tileProps.res ? 'Yes' : 'No'}<br>
+            ${tileProps.uc ? `<b>Use Code:</b> ${tileProps.uc}<br>` : ''}
           </div>`);
         }
         return;
@@ -764,7 +765,7 @@ const PARCEL_VAL_FILTERS = {
   "750k-1m":     ["all", [">=", ["get", "val"], 750000], ["<", ["get", "val"], 1000000]],
   "1m+":         [">=", ["get", "val"], 1000000],
 };
-var _parcelTypeFilter = "all";          // "all" or "residential"
+var _parcelTypeFilter = "all";          // "all", "residential", or "commercial"
 var _activeValChips   = new Set();      // multi-select value chips
 
 function styleChip(el, active) {
@@ -772,7 +773,7 @@ function styleChip(el, active) {
   else        { el.classList.remove("active"); el.style.background = "transparent"; el.style.color = "var(--text-primary,#333)"; }
 }
 
-// Type chips — single-select (All / Residential)
+// Type chips — single-select (All / Residential / Commercial)
 document.querySelectorAll(".parcel-chip-type").forEach(chip => {
   chip.addEventListener("click", () => {
     document.querySelectorAll(".parcel-chip-type").forEach(c => styleChip(c, false));
@@ -843,8 +844,9 @@ function applyParcelFilters() {
   if (!_parcelVisible) return;
   const conditions = [];
 
-  // Type filter (All / Residential)
+  // Type filter (All / Residential / Commercial)
   if (_parcelTypeFilter === "residential") conditions.push(["==", ["get", "res"], 1]);
+  else if (_parcelTypeFilter === "commercial") conditions.push(["==", ["get", "res"], 0]);
 
   // Value chip filters — OR together when multiple selected
   if (_activeValChips.size > 0) {
@@ -868,14 +870,19 @@ function applyParcelFilters() {
     if (_valRange[1] < 2000000) conditions.push(["<=", ["get", "val"], _valRange[1]]);
   }
 
+  // Use layer filter instead of paint expressions — avoids nested match-in-case bug
   if (conditions.length > 0) {
-    const matchExpr = conditions.length === 1 ? conditions[0] : ["all", ...conditions];
-    map.setPaintProperty("parcels-fill", "fill-color", ["case", matchExpr, PARCEL_MATCH, "rgba(40,40,40,0.15)"]);
-    map.setPaintProperty("parcels-fill", "fill-opacity", ["case", matchExpr, 0.85, 0.08]);
+    const filterExpr = conditions.length === 1 ? conditions[0] : ["all", ...conditions];
+    map.setFilter("parcels-fill", filterExpr);
+    map.setFilter("parcels-outline", filterExpr);
   } else {
-    map.setPaintProperty("parcels-fill", "fill-color", PARCEL_MATCH);
-    map.setPaintProperty("parcels-fill", "fill-opacity", 0.85);
+    map.setFilter("parcels-fill", null);
+    map.setFilter("parcels-outline", null);
   }
+
+  // Colors always use the simple match expression — no nesting
+  map.setPaintProperty("parcels-fill", "fill-color", PARCEL_MATCH);
+  map.setPaintProperty("parcels-fill", "fill-opacity", 0.85);
   document.getElementById("parcel-filter-count").textContent = conditions.length > 0 ? "Filter active" : "";
 }
 
@@ -1517,124 +1524,66 @@ async function runQuery() {
       return;
     }
 
-    // AI query
-    const aiRes = await fetch("/api/interpret", {
+    // ── Smart-query: Claude routes to SQL + LightRAG + full-text as needed ──
+    // Proxies to explorer.jbf.com's endpoint (the county intelligence reasoning engine).
+    // Pre-seeds context with the state currently loaded on the map.
+    const st = window._currentState || { abbr: "FL", name: "Florida" };
+    const contextPrefix = `[Context: user is viewing ops.jbf.com with ${st.name} (${st.abbr}) currently loaded. When relevant, scope SQL queries to this state. Answer as a Red Cross operations analyst — prioritize chapter/region/division framing and actionable insight over raw numbers.]\n\n`;
+
+    queryStatus.textContent = "Consulting smart-query…";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+    const smartRes = await fetch("https://explorer.jbf.com/api/smart-query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system: getSchemaPrompt(), query: q }),
+      body: JSON.stringify({ question: contextPrefix + q }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
-    const aiData = await aiRes.json();
-    if (aiData.error) throw new Error(aiData.error);
-    const rawText = aiData.content?.[0]?.text || "{}";
-    const cleaned = rawText.replace(/```json|```/g, "").trim();
-    let parsed;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch (_e) {
-      const m = cleaned.match(/\{[\s\S]*\}/);
-      if (!m) throw _e;
-      let depth = 0, end = -1;
-      for (let i = 0; i < m[0].length; i++) {
-        if (m[0][i] === '{') depth++;
-        else if (m[0][i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-      }
-      parsed = JSON.parse(m[0].slice(0, end));
+    const rawBody = await smartRes.text();
+    if (!smartRes.ok) {
+      throw new Error(`smart-query ${smartRes.status}: ${rawBody.slice(0, 160)}`);
     }
+    const data = JSON.parse(rawBody);
+    const answer = data.answer || "(no answer returned)";
 
-    if (parsed.cannot_answer) {
-      queryStatus.innerHTML = `<span style="color:#e67e22">⚠ ${parsed.reason || "That data isn't in our database."}</span>`;
-      const suggestions = parsed.suggestions || [];
-      if (suggestions.length > 0 && hdr && list) {
-        hdr.style.display = "block";
-        hdr.textContent = "Try one of these instead:";
-        list.innerHTML = suggestions.map(s =>
-          `<div class="result-card" style="cursor:pointer;padding:10px 12px" onclick="document.getElementById('query-input').value=this.textContent;runQuery()">${s}</div>`
-        ).join("");
-      }
-      queryBtn.disabled = false;
-      return;
-    }
+    // Figure out which tools were used for the source label
+    const tools = (data.trace || []).map(t => t.tool);
+    const sources = [];
+    if (tools.includes("supabase_sql")) sources.push("database");
+    if (tools.includes("lightrag_query")) sources.push("knowledge graph");
+    if (tools.includes("text_search")) sources.push("full-text");
+    const sourceLabel = sources.length ? sources.join(" + ") : "Claude";
 
-    queryStatus.textContent = `Claude: ${parsed.explanation || "querying…"}`;
-
-    const table = parsed.table || "home_fires";
-    const fetchLimit = parsed.aggregate === "county" ? 6000 : parsed.limit;
-    const params = buildSupabaseParams(parsed.filters, parsed.order, fetchLimit);
-    let rows;
-    try {
-      rows = await sbFetch(table, params);
-    } catch (fetchErr) {
-      const stKey = table === "svi" ? "st_abbr" : table === "nri" ? "stateabbrv" : "state_abbr";
-      const st = window._currentState || { abbr: "FL" };
-      const fallbackParams = buildSupabaseParams({ [stKey]: st.abbr }, parsed.order, fetchLimit);
-      rows = await sbFetch(table, fallbackParams);
-    }
-
-    // Post-filter
-    if (parsed.post_filter) {
-      const pctMatch = parsed.post_filter.match(/pct_full_(gte|gt|lte|lt)_(\d+)/);
-      if (pctMatch && table === "shelters") {
-        const op = pctMatch[1];
-        const threshold = parseInt(pctMatch[2]);
-        rows = rows.filter(r => {
-          if (!r.capacity || r.capacity === 0) return false;
-          const pct = (r.current_occupancy / r.capacity) * 100;
-          return op === "gte" ? pct >= threshold : op === "gt" ? pct > threshold : op === "lte" ? pct <= threshold : pct < threshold;
-        });
-      }
-    }
-
-    // County aggregation
-    if (parsed.aggregate === "county" && (table === "svi" || table === "nri")) {
-      const countyMap = new Map();
-      rows.forEach(r => {
-        let cty = r.county || "Unknown";
-        const displayCounty = cty.includes("County") ? cty : cty + " County";
-        const key = cty.replace(/ County$/i, "").toLowerCase();
-        if (!countyMap.has(key)) countyMap.set(key, { _display: displayCounty, _tracts: 0, _sums: {}, _counts: {} });
-        const agg = countyMap.get(key);
-        agg._tracts++;
-        for (const [f, v] of Object.entries(r)) {
-          if (["county","fips","tractfips","st_abbr","stateabbrv","location","risk_ratng"].includes(f)) continue;
-          const num = parseFloat(v);
-          if (isNaN(num) || num < 0) continue;
-          agg._sums[f] = (agg._sums[f] || 0) + num;
-          agg._counts[f] = (agg._counts[f] || 0) + 1;
-        }
-      });
-      const countyRows = [];
-      countyMap.forEach((agg) => {
-        const row = { county: agg._display, tracts: agg._tracts };
-        for (const f of Object.keys(agg._sums)) {
-          const isAvg = f.startsWith("ep_") || f.endsWith("_risks") || f.endsWith("_score") || f.startsWith("rpl_");
-          row[f] = isAvg ? Math.round((agg._sums[f] / (agg._counts[f] || 1)) * 10) / 10 : Math.round(agg._sums[f]);
-        }
-        countyRows.push(row);
-      });
-      const orderField = parsed.order ? parsed.order.split(".")[0] : (table === "nri" ? "risk_score" : "e_totpop");
-      const orderDir = parsed.order ? parsed.order.split(".")[1] : "desc";
-      countyRows.sort((a, b) => orderDir === "desc" ? (b[orderField] || 0) - (a[orderField] || 0) : (a[orderField] || 0) - (b[orderField] || 0));
-      rows = countyRows.slice(0, parsed.limit || 20);
-    }
-
-    const label = `${rows.length} result${rows.length !== 1 ? "s" : ""}`;
+    queryStatus.textContent = `Answered via ${sourceLabel}`;
     queryBtn.disabled = false;
-    renderQueryResults(rows.slice(0, 50), label);
 
-    // Plot rows with lat/lon
-    const geoRows = rows.filter(r => r.lat && r.lon);
-    if (geoRows.length) {
-      map.getSource("highlight").setData({
-        type: "FeatureCollection",
-        features: geoRows.map(r => ({ type: "Feature", geometry: { type: "Point", coordinates: [r.lon, r.lat] }, properties: r })),
-      });
-      const bounds = geoRows.reduce((b, r) => b.extend([r.lon, r.lat]), new maplibregl.LngLatBounds());
-      map.fitBounds(bounds, { padding: 50, duration: 800 });
+    // Render the markdown answer in the results panel
+    if (hdr && list) {
+      hdr.style.display = "block";
+      hdr.textContent = "▼ Answer";
+      const rendered = (window.marked && window.marked.parse)
+        ? window.marked.parse(answer)
+        : `<pre style="white-space:pre-wrap;font-family:inherit">${answer.replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]))}</pre>`;
+      list.innerHTML = `<div class="result-card" style="padding:14px 14px;line-height:1.55;font-size:13px">${rendered}</div>`;
     }
+
+    // Highlight any county FIPS codes mentioned in the answer
+    const fipsMatches = [...answer.matchAll(/\bFIPS[:\s]*(\d{5})\b|\b(\d{5})\b(?=[^0-9]|$)/g)]
+      .map(m => m[1] || m[2])
+      .filter((v, i, a) => v && a.indexOf(v) === i)
+      .slice(0, 20);
+    // (Lat/lon plotting omitted — smart-query returns narrative, not rows.
+    //  If the answer references specific counties, we could geocode FIPS → centroid
+    //  via a future map-context tool; for now we just display the text.)
 
   } catch (err) {
-    queryStatus.textContent = `Error: ${err.message}`;
+    if (err.name === "AbortError") {
+      queryStatus.textContent = "Query timed out after 90s";
+    } else {
+      queryStatus.textContent = `Error: ${err.message}`;
+    }
     queryBtn.disabled = false;
   }
 }
@@ -2102,3 +2051,70 @@ function showHelp() {
   alert("Spatial RAG — Disaster Response\n\nMapLibre GL JS Edition\nBuilt by Jeff Franzen · American Red Cross\n\nUse Layers tab to toggle SVI/NRI choropleth overlays.\nUse Query tab for natural language queries.\nUse Analyze tab to draw spatial selections.");
 }
 window.showHelp = showHelp;
+
+// ── Right panel resize (drag left edge to widen for long smart-query answers) ──
+(function initPanelResize() {
+  const panel = document.getElementById("right-panel");
+  const handle = document.getElementById("panel-resize-handle");
+  if (!panel || !handle) return;
+
+  const MIN_WIDTH = 300;
+  const MAX_WIDTH = Math.min(window.innerWidth - 200, 1200);
+  const STORAGE_KEY = "ops-panel-width";
+
+  // Restore saved width
+  const saved = parseInt(localStorage.getItem(STORAGE_KEY) || "", 10);
+  if (saved && saved >= MIN_WIDTH) {
+    panel.style.setProperty("--panel-width", `${Math.min(saved, MAX_WIDTH)}px`);
+  }
+
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  handle.addEventListener("mousedown", (e) => {
+    if (!panel.classList.contains("open")) return;
+    dragging = true;
+    startX = e.clientX;
+    startWidth = panel.offsetWidth;
+    panel.classList.add("resizing");
+    handle.classList.add("active");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    // Dragging LEFT (negative deltaX) should widen the panel
+    const deltaX = startX - e.clientX;
+    const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + deltaX));
+    panel.style.setProperty("--panel-width", `${newWidth}px`);
+    // Force reflow to apply CSS variable during drag
+    panel.offsetWidth;
+    // Trigger map resize so MapLibre doesn't get squished
+    if (window.map && typeof window.map.resize === "function") window.map.resize();
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!dragging) return;
+    dragging = false;
+    panel.classList.remove("resizing");
+    handle.classList.remove("active");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    // Persist the final width
+    const finalWidth = panel.offsetWidth;
+    if (finalWidth >= MIN_WIDTH) {
+      localStorage.setItem(STORAGE_KEY, String(finalWidth));
+    }
+    if (window.map && typeof window.map.resize === "function") window.map.resize();
+  });
+
+  // Double-click the handle to reset to default
+  handle.addEventListener("dblclick", () => {
+    panel.style.removeProperty("--panel-width");
+    localStorage.removeItem(STORAGE_KEY);
+    if (window.map && typeof window.map.resize === "function") window.map.resize();
+  });
+})();

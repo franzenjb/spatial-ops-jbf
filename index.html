@@ -20,6 +20,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.7.1/nouislider.min.js"></script>
 
+  <!-- marked for rendering smart-query markdown answers -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -282,13 +285,32 @@
       position: relative;
     }
     #right-panel.open {
-      width: 360px;
+      width: var(--panel-width, 360px);
       border-left-color: #a51c30;
     }
+    #right-panel.resizing {
+      transition: none;
+    }
+    /* Drag handle on the LEFT edge of the panel */
+    #panel-resize-handle {
+      position: absolute;
+      top: 0;
+      left: -4px;
+      width: 8px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 50;
+      background: transparent;
+    }
+    #panel-resize-handle:hover,
+    #panel-resize-handle.active {
+      background: rgba(165, 28, 48, 0.3);
+    }
+    #right-panel:not(.open) #panel-resize-handle { display: none; }
     .ctx-panel {
       display: flex;
       flex-direction: column;
-      width: 360px;
+      width: 100%;
       height: 100%;
     }
     .ctx-body {
@@ -701,6 +723,8 @@
 
   <!-- ── Right context panel ────────────────────────────── -->
   <div id="right-panel" class="open" data-active="layers">
+    <!-- Drag handle to resize panel width -->
+    <div id="panel-resize-handle" title="Drag to resize"></div>
 
     <!-- Tab bar -->
     <div id="panel-tabs">
@@ -807,6 +831,7 @@
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
               <button class="parcel-chip-type active" data-ptype="all" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:#41b6c4;color:#fff;cursor:pointer">All</button>
               <button class="parcel-chip-type" data-ptype="residential" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Residential</button>
+              <button class="parcel-chip-type" data-ptype="commercial" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Commercial</button>
               <button class="parcel-chip-val" data-pval="under250k" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Under $250K</button>
               <button class="parcel-chip-val" data-pval="250k-500k" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$250K–$500K</button>
               <button class="parcel-chip-val" data-pval="500k-750k" style="padding:3px 10px;border-radius:12px;font-size:11px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">$500K–$750K</button>
