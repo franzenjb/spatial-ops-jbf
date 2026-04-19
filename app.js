@@ -1163,7 +1163,13 @@ async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, an
         sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
         sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
         sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
-      ]).then(([s, n, a, f]) => { sviRows = s; nriRows = n; aliceRows = a; femaRows = f; })
+        sbFetch("county_rankings", `select=county_fips,population&county_fips=${countyFilter}`),
+      ]).then(([s, n, a, f, cr]) => {
+        sviRows = s; nriRows = n; femaRows = f;
+        // Enrich each ALICE row with county population so we can compute totals
+        const popByFips = Object.fromEntries((cr || []).map(r => [r.county_fips, r.population || 0]));
+        aliceRows = (a || []).map(row => ({ ...row, population: popByFips[row.fips_5] || 0 }));
+      })
     );
     fetchPromises.push(analyzeParcelsByTracts(tractGeoids, bbox).then(r => { parcelStats = r; }));
   }
@@ -1235,36 +1241,33 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     const combined = Math.round((avgRpl * 100 + avgNriScore) / 2);
     const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "#e05070" }
                : combined >= 50 ? { label: "High Combined Risk", color: "#e07830" }
-               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#d4b020" }
+               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#a16207" }
                : { label: "Low Combined Risk", color: "#78aa28" };
     hero = `<div class="tp-hero">
       <div class="tp-hero-label">Combined Risk Score</div>
       <div class="tp-hero-score" style="color:${cCat.color}">${combined}</div>
       <div class="tp-hero-cat" style="color:${cCat.color}">${cCat.label}</div>
       <div class="tp-hero-tract">${analysisType} view · ${validSVI.length} tract${validSVI.length === 1 ? "" : "s"} · ${aliceRows.length} count${aliceRows.length === 1 ? "y" : "ies"}</div>
-    </div>`;
+    </div>
+    <div class="tp-caption">All data reflects tracts, parcels, and records within or touching the analysis area</div>`;
   }
 
-  // FEMA narrative
+  // FEMA — one block per county, narrative-first, no redundant roll-up row
   let femaBlock = "";
   if (femaRows.length) {
     const byDecl = [...femaRows].sort((a, b) => (b.total_declarations || 0) - (a.total_declarations || 0));
-    const topCounty = byDecl[0];
-    const mostRecent = (topCounty?.most_recent_title || "").trim();
-    const hazardCounts = {};
-    femaRows.forEach(r => { if (r.top_hazard) hazardCounts[r.top_hazard] = (hazardCounts[r.top_hazard] || 0) + 1; });
-    const topHazard = Object.entries(hazardCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Hurricane";
-    const avgPerYear = femaRows.reduce((s, r) => s + (r.declarations_per_year || 0), 0) / femaRows.length;
-    const narrative = `${femaRows.length} count${femaRows.length === 1 ? "y" : "ies"} · <strong>${totalDecl}</strong> federal declarations (≈${avgPerYear.toFixed(1)}/yr). Top hazard: <strong>${topHazard}</strong>.${mostRecent ? ` Most recent: <strong>${mostRecent}</strong>.` : ""}`;
-    const perCounty = byDecl.map(r => {
+    femaBlock = byDecl.map((r, idx) => {
+      const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
       const last = (r.most_recent_title || "").trim();
-      return `<div class="tp-kv"><span class="tp-kv-key">${r.county_name || r.fips_5}</span><span class="tp-kv-val">${r.total_declarations}${last ? ` · ${last}` : ""}</span></div>`;
+      const decl = r.total_declarations || 0;
+      const dpy = r.declarations_per_year || 0;
+      const hazard = r.top_hazard || "Hurricane";
+      const headingStyle = idx > 0 ? ' style="margin-top:12px"' : '';
+      return `<div class="tp-section"${headingStyle}>FEMA Disaster History — ${name}</div>
+        <div class="corr-narrative"><strong>${decl}</strong> federal declarations (≈${dpy.toFixed(1)}/yr). Top hazard: <strong>${hazard}</strong>.${last ? ` Most recent: <strong>${last}</strong>.` : ""}</div>
+        ${kv("Hurricane declarations", `<strong>${r.hurricane_count || 0}</strong>`)}
+        ${kv("Flood declarations", `<strong>${r.flood_count || 0}</strong>`)}`;
     }).join("");
-    femaBlock = `<div class="tp-section">FEMA Disaster History</div>
-      <div class="corr-narrative">${narrative}</div>
-      ${kv("Hurricane declarations", `<strong>${totalHurr}</strong>`)}
-      ${kv("Flood declarations", `<strong>${totalFlood}</strong>`)}
-      ${perCounty}`;
   }
 
   const el = document.getElementById("corridor-results");
@@ -1279,13 +1282,15 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${kv("Shelters", `<strong>${sheltsIn.length}</strong>`)}
     ${kv("DAT Volunteers", `<strong>${volsIn.length}</strong>`)}
 
-    ${aliceRows.length ? `
-    <div class="tp-section">Economic Hardship (ALICE)</div>
-    ${kv("Counties in area", aliceRows.length)}
-    ${kv("Avg struggling (ALICE + poverty)", `<strong>${Math.round(avgStruggling)}%</strong>`)}
-    ${kv("Avg median income", `<strong>$${num(avgMedian)}</strong>`)}
-    ${aliceRows.map(r => kv(r.county_name, `<strong>${Math.round(r.pct_struggling)}%</strong> struggling · $${num(r.median_income)}`)).join("")}
-    ` : ""}
+    ${aliceRows.length ? aliceRows.map((r, idx) => {
+      const pop = r.population || 0;
+      const pct = r.pct_struggling || 0;
+      const struggling = Math.round(pop * (pct / 100));
+      const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
+      const headingStyle = idx > 0 ? ' style="margin-top:12px"' : '';
+      return `<div class="tp-section"${headingStyle}>Economic Hardship (ALICE) — ${name}</div>
+        <div class="corr-narrative">Covering <strong>${compactMoney(pop).replace("$","")} residents</strong>, an estimated <strong>${compactMoney(struggling).replace("$","")}</strong> live in struggling households (ALICE + poverty, <strong>${Math.round(pct)}%</strong>). Median household income: <strong>$${num(r.median_income)}</strong>.</div>`;
+    }).join("") : ""}
 
     ${validSVI.length ? `
     <div class="tp-section">Social Vulnerability (SVI)</div>
@@ -1316,17 +1321,22 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
 
     ${parcelStats && parcelStats.total_parcels > 0 ? `
     <div class="tp-section">Property Data (Florida Parcels)</div>
-    ${kv("Total parcels", `<strong>${num(parcelStats.total_parcels)}</strong>`)}
+    <div class="corr-narrative"><strong>${num(parcelStats.total_parcels)}</strong> parcels totaling <strong>${compactMoney(parcelStats.total_assessed)}</strong> in assessed value (avg <strong>${compactMoney(parcelStats.avg_assessed)}</strong>).</div>
+    <div class="tp-subhead">Composition</div>
     ${kv("Residential", num(parcelStats.residential))}
     ${kv("Commercial / other", num(parcelStats.commercial))}
-    ${kv("Avg assessed value", `<strong>${compactMoney(parcelStats.avg_assessed)}</strong>`)}
-    ${kv("Median assessed", compactMoney(parcelStats.median_assessed))}
-    ${kv("Total assessed value", `<strong>${compactMoney(parcelStats.total_assessed)}</strong>`)}
+    <div class="tp-subhead">Valuation</div>
+    ${kv("Average", `<strong>${compactMoney(parcelStats.avg_assessed)}</strong>`)}
+    ${kv("Median", compactMoney(parcelStats.median_assessed))}
+    ${kv("Total", `<strong>${compactMoney(parcelStats.total_assessed)}</strong>`)}
+    <div class="tp-subhead">Age</div>
     ${kv("Avg year built", parcelStats.avg_year_built)}
     ${kv("Pre-1970", num(parcelStats.pre_1970))}
     ${kv("Post-2000", num(parcelStats.post_2000))}
+    <div class="tp-subhead">Scale</div>
     ${kv("Avg sq ft", num(parcelStats.avg_sqft))}
     ${kv("Total acres", int(parcelStats.total_acres))}
+    <div class="tp-subhead">Luxury</div>
     ${kv("Over $500K", num(parcelStats.over_500k))}
     ${kv("Over $1M", num(parcelStats.over_1m))}
     ` : ""}
@@ -1825,7 +1835,7 @@ function buildTractPopupHTML(geoid, bbox) {
     const combined = Math.round((sviVal * 100 + nriVal) / 2);
     const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "#e05070" }
                : combined >= 50 ? { label: "High Combined Risk", color: "#e07830" }
-               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#d4b020" }
+               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#a16207" }
                : { label: "Low Combined Risk", color: "#78aa28" };
     html += `<div class="tp-hero"><div class="tp-hero-label">Combined Risk Score</div>
       <div class="tp-hero-score" style="color:${cCat.color}">${combined}</div>
