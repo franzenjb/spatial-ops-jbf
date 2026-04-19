@@ -406,12 +406,11 @@ map.on("load", async () => {
         const lng = e.lngLat.lng;
         const tileProps = parcelFeats[0].properties || {};
         const d = 0.002; // ~200m bbox to ensure we get nearby parcels
-        showFeaturePanel("Parcel", `<div style="font-size:13px;color:#888">Loading parcel details…</div>`);
+        showFeaturePanel("Parcel", `<div style="font-size:13px;color:#888;padding:10px 0">Loading parcel details…</div>`);
         try {
           const resp = await fetch(`${PARCEL_API}/api/parcels?xmin=${lng-d}&ymin=${lat-d}&xmax=${lng+d}&ymax=${lat+d}&limit=20`);
           const data = await resp.json();
           const feats = data?.features || [];
-          // Find closest feature to click point
           let best = null, bestDist = Infinity;
           for (const f of feats) {
             const c = f.geometry?.coordinates;
@@ -423,41 +422,13 @@ map.on("load", async () => {
           const a = best?.properties || {};
           const hasData = a.addr || a.owner || a.val || a.county;
           if (hasData) {
-            const fmt = (v) => v != null ? Number(v).toLocaleString() : 'N/A';
-            const title = a.addr ? `${a.addr}, ${a.city || ''} ${a.zip || ''}` : 'Parcel';
-            showFeaturePanel(title, `<div style="font-size:13px;line-height:2">
-              <b>Owner:</b> ${a.owner || 'N/A'}<br>
-              <b>County:</b> ${a.county || 'N/A'}<br>
-              <b>Assessed Value:</b> $${fmt(a.val)}<br>
-              <b>Market Value:</b> $${fmt(a.mv)}<br>
-              <b>Year Built:</b> ${a.yb || 'N/A'}<br>
-              <b>Sq Ft:</b> ${fmt(a.sf)}<br>
-              <b>Bed/Bath:</b> ${a.bd || 0} / ${a.ba || 0}<br>
-              <b>Acres:</b> ${a.acres || 'N/A'}<br>
-              <b>Use Code:</b> ${a.uc || 'N/A'}<br>
-            </div>`);
+            const title = a.addr ? `${a.addr}, ${a.city || ''} ${a.zip || ''}`.trim() : 'Parcel';
+            showFeaturePanel(title, buildParcelPopupHTML(a, tileProps));
           } else {
-            // Fall back to tile properties
-            const vLabels = ["Under $50K", "$50K–$150K", "$150K–$300K", "$300K–$500K", "$500K–$1M", "$1M+"];
-            showFeaturePanel("Parcel", `<div style="font-size:13px;line-height:2">
-              <b>Value Range:</b> ${vLabels[tileProps.v] || 'Unknown'}<br>
-              ${tileProps.val ? `<b>Assessed Value:</b> $${Number(tileProps.val).toLocaleString()}<br>` : ''}
-              ${tileProps.yb ? `<b>Year Built:</b> ${tileProps.yb}<br>` : ''}
-              <b>Residential:</b> ${tileProps.res ? 'Yes' : 'No'}<br>
-              ${tileProps.uc ? `<b>Use Code:</b> ${tileProps.uc}<br>` : ''}
-              <div style="margin-top:6px;color:#999;font-size:11px">Limited data — detailed records not available for this parcel</div>
-            </div>`);
+            showFeaturePanel("Parcel", buildParcelPopupHTML(null, tileProps));
           }
         } catch (_) {
-          // Network error — show tile properties as fallback
-          const vLabels = ["Under $50K", "$50K–$150K", "$150K–$300K", "$300K–$500K", "$500K–$1M", "$1M+"];
-          showFeaturePanel("Parcel", `<div style="font-size:13px;line-height:2">
-            <b>Value Range:</b> ${vLabels[tileProps.v] || 'Unknown'}<br>
-            ${tileProps.val ? `<b>Assessed Value:</b> $${Number(tileProps.val).toLocaleString()}<br>` : ''}
-            ${tileProps.yb ? `<b>Year Built:</b> ${tileProps.yb}<br>` : ''}
-            <b>Residential:</b> ${tileProps.res ? 'Yes' : 'No'}<br>
-            ${tileProps.uc ? `<b>Use Code:</b> ${tileProps.uc}<br>` : ''}
-          </div>`);
+          showFeaturePanel("Parcel", buildParcelPopupHTML(null, tileProps));
         }
         return;
       }
@@ -1724,6 +1695,97 @@ function buildFeaturePopupHTML(type, attrs) {
       html += row("Hurricane", sc(nri.hrcn_risks));
       html += row("Flood", sc(Math.max(nri.cfld_risks||0, nri.ifld_risks||0)));
     }
+  }
+
+  return html;
+}
+
+function buildParcelPopupHTML(a, tileProps) {
+  tileProps = tileProps || {};
+  a = a || {};
+  const fmt = v => v != null && v !== "" ? Number(v).toLocaleString() : null;
+  const compactMoney = v => {
+    const n = Number(v) || 0;
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+    return `$${Math.round(n).toLocaleString()}`;
+  };
+  const kv = (k, v) => `<div class="tp-kv"><span class="tp-kv-key">${k}</span><span class="tp-kv-val">${v}</span></div>`;
+
+  const val = Number(a.val) || Number(tileProps.val) || 0;
+  const mv = Number(a.mv) || 0;
+  const yb = a.yb || tileProps.yb || null;
+  const sf = Number(a.sf) || 0;
+  const acres = a.acres ? Number(a.acres) : null;
+  const uc = a.uc || tileProps.uc || null;
+  const isRes = a.res != null ? !!a.res : (tileProps.res ? true : null);
+
+  const cat = val >= 1e6 ? "#e05070"
+            : val >= 5e5 ? "#e07830"
+            : val >= 3e5 ? "#d4b020"
+            : val >= 1.5e5 ? "#78aa28"
+            : val >= 5e4 ? "#6abf9e"
+            : "#888";
+
+  let html = "";
+
+  if (val > 0) {
+    const subParts = [];
+    if (yb) subParts.push(`Built ${yb}`);
+    if (sf > 0) subParts.push(`${fmt(sf)} sq ft`);
+    if (acres) subParts.push(`${acres} ac`);
+    html += `<div class="tp-hero">
+      <div class="tp-hero-label">Assessed Value</div>
+      <div class="tp-hero-score" style="color:${cat}">${compactMoney(val)}</div>
+      ${mv > 0 && mv !== val ? `<div class="tp-hero-cat" style="color:${cat}">Market ${compactMoney(mv)}</div>` : ""}
+      ${subParts.length ? `<div class="tp-hero-tract">${subParts.join(" · ")}</div>` : ""}
+    </div>`;
+  }
+
+  html += `<div class="tp-section" style="margin-top:0">Property Details</div>`;
+  if (a.owner) html += kv("Owner", a.owner);
+  const locParts = [a.city, a.zip].filter(Boolean);
+  if (locParts.length) html += kv("Location", locParts.join(" "));
+  if (a.county) html += kv("County", a.county);
+  if (yb) html += kv("Year built", yb);
+  if (sf > 0) html += kv("Square feet", fmt(sf));
+  if ((a.bd || a.ba) && (a.bd || 0) + (a.ba || 0) > 0) html += kv("Bed / Bath", `${a.bd || 0} / ${a.ba || 0}`);
+  if (acres) html += kv("Acres", acres);
+  if (uc) html += kv("Use code", isRes === true ? `${uc} · Residential` : isRes === false ? `${uc} · Commercial / other` : uc);
+
+  if (mv > 0 && val > 0) {
+    html += `<div class="tp-section">Valuation</div>`;
+    html += kv("Assessed", compactMoney(val));
+    if (mv !== val) html += kv("Market", compactMoney(mv));
+    if (mv > 0) {
+      const ratio = Math.round((val / mv) * 100);
+      html += kv("Assessed / Market", `${ratio}%`);
+    }
+  }
+
+  // Async Red Cross chapter / region / division lookup by county
+  if (a.county) {
+    const asyncId = "parcel-rc-" + Date.now();
+    html += `<div id="${asyncId}"></div>`;
+    setTimeout(() => {
+      const countyQuery = encodeURIComponent(a.county);
+      sbFetch("county_rankings", `select=chapter,region,division&county_name=ilike.${countyQuery}*&state_abbr=eq.FL&limit=1`).then(r => {
+        const el = document.getElementById(asyncId);
+        if (!el || !r?.[0]) return;
+        const cr = r[0];
+        let extra = `<div class="tp-section">Red Cross Coverage</div>`;
+        if (cr.chapter) extra += kv("Chapter", cr.chapter);
+        if (cr.region) extra += kv("Region", cr.region);
+        if (cr.division) extra += kv("Division", cr.division);
+        el.innerHTML = extra;
+      }).catch(() => {});
+    }, 0);
+  }
+
+  // No-API fallback note
+  if (!a.owner && !a.addr) {
+    html += `<div style="margin-top:10px;color:#999;font-size:11px;font-style:italic">Limited data — detailed owner/address records not available for this parcel.</div>`;
   }
 
   return html;
