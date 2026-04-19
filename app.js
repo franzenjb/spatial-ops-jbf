@@ -1152,6 +1152,26 @@ async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, an
   let sviRows = [], nriRows = [], aliceRows = [], femaRows = [];
   let parcelStats = null;
 
+  // Show a loading skeleton while fetches are in flight — the panel is
+  // otherwise blank for 2-4 seconds and feels broken.
+  const resultsEl = document.getElementById("corridor-results");
+  if (resultsEl) {
+    resultsEl.innerHTML = `
+      <div class="tp-hero" style="padding:18px 8px">
+        <div class="tp-hero-label">${analysisType} Analysis</div>
+        <div class="analyzing-dots" style="font-size:15px;font-weight:700;color:#a51c30;margin-top:6px">Analyzing <span>·</span><span>·</span><span>·</span></div>
+        <div class="tp-hero-tract" style="margin-top:4px">Pulling SVI · NRI · ALICE · FEMA · parcels for ${tractGeoids.length} tract${tractGeoids.length === 1 ? "" : "s"}</div>
+      </div>`;
+    // Also open the accordion so the loader is visible
+    const accSection = document.getElementById("acc-corridor-results");
+    if (accSection) {
+      accSection.classList.add("active");
+      const accLabel = accSection.querySelector(".acc-label");
+      if (accLabel) accLabel.textContent = `${analysisType} Analysis`;
+      toggleAccordion("acc-corridor-results", true);
+    }
+  }
+
   const fetchPromises = [];
   if (tractGeoids.length) {
     const inFilter = `in.(${tractGeoids.join(",")})`;
