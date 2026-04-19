@@ -1285,10 +1285,10 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
   let hero = "";
   if (avgRpl != null && avgNriScore != null) {
     const combined = Math.round((avgRpl * 100 + avgNriScore) / 2);
-    const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "#e05070" }
-               : combined >= 50 ? { label: "High Combined Risk", color: "#e07830" }
-               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#a16207" }
-               : { label: "Low Combined Risk", color: "#78aa28" };
+    const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "var(--risk-very-high)" }
+               : combined >= 50 ? { label: "High Combined Risk", color: "var(--risk-high)" }
+               : combined >= 25 ? { label: "Moderate Combined Risk", color: "var(--risk-moderate)" }
+               : { label: "Low Combined Risk", color: "var(--risk-low)" };
     hero = `<div class="tp-hero">
       <div class="tp-hero-label">Combined Risk Score</div>
       <div class="tp-hero-score" style="color:${cCat.color}">${combined}</div>
@@ -1925,10 +1925,10 @@ function buildTractPopupHTML(geoid, bbox) {
 
   if (sviVal != null && sviVal >= 0 && nriVal != null) {
     const combined = Math.round((sviVal * 100 + nriVal) / 2);
-    const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "#e05070" }
-               : combined >= 50 ? { label: "High Combined Risk", color: "#e07830" }
-               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#a16207" }
-               : { label: "Low Combined Risk", color: "#78aa28" };
+    const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "var(--risk-very-high)" }
+               : combined >= 50 ? { label: "High Combined Risk", color: "var(--risk-high)" }
+               : combined >= 25 ? { label: "Moderate Combined Risk", color: "var(--risk-moderate)" }
+               : { label: "Low Combined Risk", color: "var(--risk-low)" };
     html += `<div class="tp-hero"><div class="tp-hero-label">Combined Risk Score</div>
       <div class="tp-hero-score" style="color:${cCat.color}">${combined}</div>
       <div class="tp-hero-cat" style="color:${cCat.color}">${cCat.label}</div>

@@ -34,8 +34,8 @@ test('dark mode toggles cleanly and panel is readable', async ({ page }) => {
     const mockHtml = `
       <div class="tp-hero">
         <div class="tp-hero-label">Combined Risk Score</div>
-        <div class="tp-hero-score" style="color:#a16207">27</div>
-        <div class="tp-hero-cat" style="color:#a16207">Moderate Combined Risk</div>
+        <div class="tp-hero-score" style="color:var(--risk-moderate)">27</div>
+        <div class="tp-hero-cat" style="color:var(--risk-moderate)">Moderate Combined Risk</div>
         <div class="tp-hero-tract">Radius view · 12 tracts · 1 county</div>
       </div>
       <div class="tp-caption">All data reflects tracts, parcels, and records within or touching the analysis area</div>
