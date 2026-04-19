@@ -1321,7 +1321,7 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
         ${last ? `<div class="cc-recent">Most recent: <strong>${last}</strong></div>` : ""}
       </div>`;
     }).join("");
-    femaBlock = `<details open class="tp-acc"><summary class="tp-section">FEMA Disaster History</summary>${cards}</details>`;
+    femaBlock = `<details class="tp-acc"><summary class="tp-section">FEMA Disaster History</summary>${cards}</details>`;
   }
 
   const el = document.getElementById("corridor-results");
@@ -1338,6 +1338,30 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
       ${kv("DAT Volunteers", `<strong>${volsIn.length}</strong>`)}
     </details>
 
+    ${parcelStats && parcelStats.total_parcels > 0 ? `
+    <details open class="tp-acc">
+      <summary class="tp-section">Property Data (Florida Parcels)</summary>
+      <div class="corr-narrative"><strong>${num(parcelStats.total_parcels)}</strong> parcels totaling <strong>${compactMoney(parcelStats.total_assessed)}</strong> in assessed value (avg <strong>${compactMoney(parcelStats.avg_assessed)}</strong>).</div>
+      <div class="tp-subhead">Composition</div>
+      ${kv("Residential", num(parcelStats.residential))}
+      ${kv("Commercial / other", num(parcelStats.commercial))}
+      <div class="tp-subhead">Valuation</div>
+      ${kv("Average", `<strong>${compactMoney(parcelStats.avg_assessed)}</strong>`)}
+      ${kv("Median", compactMoney(parcelStats.median_assessed))}
+      ${kv("Total", `<strong>${compactMoney(parcelStats.total_assessed)}</strong>`)}
+      <div class="tp-subhead">Age</div>
+      ${kv("Avg year built", parcelStats.avg_year_built)}
+      ${kv("Pre-1970", num(parcelStats.pre_1970))}
+      ${kv("Post-2000", num(parcelStats.post_2000))}
+      <div class="tp-subhead">Scale</div>
+      ${kv("Avg sq ft", num(parcelStats.avg_sqft))}
+      ${kv("Total acres", int(parcelStats.total_acres))}
+      <div class="tp-subhead">Luxury</div>
+      ${kv("Over $500K", num(parcelStats.over_500k))}
+      ${kv("Over $1M", num(parcelStats.over_1m))}
+    </details>
+    ` : ""}
+
     ${validSVI.length ? `
     <details open class="tp-acc">
       <summary class="tp-section">Social Vulnerability (SVI)</summary>
@@ -1351,7 +1375,7 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ` : ""}
 
     ${validNRI.length ? `
-    <details open class="tp-acc">
+    <details class="tp-acc">
       <summary class="tp-section">NRI Hazard Risk</summary>
       ${bar("Overall risk score", avgNriScore, true)}
       ${bar("Hurricane", avg(validNRI, "hrcn_risks"), true)}
@@ -1379,39 +1403,15 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
           </div>
         </div>`;
       }).join("");
-      return `<details open class="tp-acc"><summary class="tp-section">Economic Hardship (ALICE)</summary>${cards}</details>`;
+      return `<details class="tp-acc"><summary class="tp-section">Economic Hardship (ALICE)</summary>${cards}</details>`;
     })() : ""}
 
     ${femaBlock}
 
     ${chapters.length ? `
-    <details open class="tp-acc">
+    <details class="tp-acc">
       <summary class="tp-section">RC Chapters in Corridor</summary>
       ${chapters.map(([ch, n]) => kv(ch, `${n} fire${n !== 1 ? "s" : ""}`)).join("")}
-    </details>
-    ` : ""}
-
-    ${parcelStats && parcelStats.total_parcels > 0 ? `
-    <details open class="tp-acc">
-      <summary class="tp-section">Property Data (Florida Parcels)</summary>
-      <div class="corr-narrative"><strong>${num(parcelStats.total_parcels)}</strong> parcels totaling <strong>${compactMoney(parcelStats.total_assessed)}</strong> in assessed value (avg <strong>${compactMoney(parcelStats.avg_assessed)}</strong>).</div>
-      <div class="tp-subhead">Composition</div>
-      ${kv("Residential", num(parcelStats.residential))}
-      ${kv("Commercial / other", num(parcelStats.commercial))}
-      <div class="tp-subhead">Valuation</div>
-      ${kv("Average", `<strong>${compactMoney(parcelStats.avg_assessed)}</strong>`)}
-      ${kv("Median", compactMoney(parcelStats.median_assessed))}
-      ${kv("Total", `<strong>${compactMoney(parcelStats.total_assessed)}</strong>`)}
-      <div class="tp-subhead">Age</div>
-      ${kv("Avg year built", parcelStats.avg_year_built)}
-      ${kv("Pre-1970", num(parcelStats.pre_1970))}
-      ${kv("Post-2000", num(parcelStats.post_2000))}
-      <div class="tp-subhead">Scale</div>
-      ${kv("Avg sq ft", num(parcelStats.avg_sqft))}
-      ${kv("Total acres", int(parcelStats.total_acres))}
-      <div class="tp-subhead">Luxury</div>
-      ${kv("Over $500K", num(parcelStats.over_500k))}
-      ${kv("Over $1M", num(parcelStats.over_1m))}
     </details>
     ` : ""}
   `;
@@ -1957,7 +1957,7 @@ function buildTractPopupHTML(geoid, bbox) {
       ["Wildfire", nri.wfir_risks], ["Heat Wave", nri.hwav_risks],
     ].filter(([,v]) => v != null && v > 0).sort((a,b) => b[1] - a[1]);
     if (hazards.length) {
-      html += `<details open class="tp-acc"><summary class="tp-section">Top Hazard Risks</summary>`;
+      html += `<details class="tp-acc"><summary class="tp-section">Top Hazard Risks</summary>`;
       hazards.forEach(([label, val]) => html += bar(label, val, true));
       html += `</details>`;
     }
@@ -1986,49 +1986,7 @@ function buildTractPopupHTML(geoid, bbox) {
       const resolvedCountyName = cr?.[0]?.county_name || a?.[0]?.county_name || null;
       let extra = "";
 
-      // Economic Hardship — compact card
-      if (a?.[0]) {
-        const ar = a[0];
-        const pct = ar.pct_struggling || 0;
-        const struggling = countyPop > 0 ? Math.round(countyPop * (pct / 100)) : null;
-        const name = ar.county_name || `County ${countyFips}`;
-        const color = pct >= 35 ? "#e05070" : pct >= 25 ? "#e07830" : pct >= 15 ? "#a16207" : "#78aa28";
-        const statsParts = [];
-        if (struggling != null) statsParts.push(`<span><strong>${compactMoney(struggling).replace("$","")}</strong> struggling</span>`);
-        if (countyPop > 0) statsParts.push(`<span>of <strong>${compactMoney(countyPop).replace("$","")}</strong> residents</span>`);
-        if (ar.median_income) statsParts.push(`<span>median <strong>$${num(ar.median_income)}</strong></span>`);
-        extra += `<details open class="tp-acc"><summary class="tp-section">Economic Hardship (ALICE)</summary>
-          <div class="cc-card">
-            <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:${color}">${Math.round(pct)}%</span></div>
-            <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${Math.min(pct, 100)}%;background:${color}"></div></div>
-            <div class="cc-stats">${statsParts.join('<span class="sep">·</span>')}</div>
-          </div></details>`;
-      }
-
-      // FEMA — compact card
-      if (f?.[0]) {
-        const fr = f[0];
-        const name = resolvedCountyName || `County ${countyFips}`;
-        const last = (fr.most_recent_title || "").trim();
-        const decl = fr.total_declarations || 0;
-        const dpy = fr.declarations_per_year != null ? Number(fr.declarations_per_year).toFixed(1) : null;
-        const hazard = fr.top_hazard || "Hurricane";
-        const hurr = fr.hurricane_count || 0;
-        const flood = fr.flood_count || 0;
-        const statsParts = [];
-        if (dpy) statsParts.push(`<span>≈${dpy}/yr</span>`);
-        statsParts.push(`<span>Top: <strong>${hazard}</strong></span>`);
-        statsParts.push(`<span><strong>${hurr}</strong> hurricane</span>`);
-        statsParts.push(`<span><strong>${flood}</strong> flood</span>`);
-        extra += `<details open class="tp-acc"><summary class="tp-section">FEMA Disaster History</summary>
-          <div class="cc-card">
-            <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:#a51c30">${decl}</span></div>
-            <div class="cc-stats">${statsParts.join('<span class="sep">·</span>')}</div>
-            ${last ? `<div class="cc-recent">Most recent: <strong>${last}</strong></div>` : ""}
-          </div></details>`;
-      }
-
-      // Property Data — grouped sub-sections
+      // Property Data — grouped sub-sections (rendered FIRST, default open)
       if (p && p.total_parcels > 0) {
         extra += `<details open class="tp-acc"><summary class="tp-section">Property Data (Florida Parcels)</summary>`;
         const totalVal = p.total_assessed != null ? compactMoney(p.total_assessed) : null;
@@ -2064,6 +2022,48 @@ function buildTractPopupHTML(geoid, bbox) {
           if (p.over_1m != null) extra += kv("Over $1M", num(p.over_1m));
         }
         extra += `</details>`;
+      }
+
+      // Economic Hardship — compact card (default collapsed)
+      if (a?.[0]) {
+        const ar = a[0];
+        const pct = ar.pct_struggling || 0;
+        const struggling = countyPop > 0 ? Math.round(countyPop * (pct / 100)) : null;
+        const name = ar.county_name || `County ${countyFips}`;
+        const color = pct >= 35 ? "#e05070" : pct >= 25 ? "#e07830" : pct >= 15 ? "#a16207" : "#78aa28";
+        const statsParts = [];
+        if (struggling != null) statsParts.push(`<span><strong>${compactMoney(struggling).replace("$","")}</strong> struggling</span>`);
+        if (countyPop > 0) statsParts.push(`<span>of <strong>${compactMoney(countyPop).replace("$","")}</strong> residents</span>`);
+        if (ar.median_income) statsParts.push(`<span>median <strong>$${num(ar.median_income)}</strong></span>`);
+        extra += `<details class="tp-acc"><summary class="tp-section">Economic Hardship (ALICE)</summary>
+          <div class="cc-card">
+            <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:${color}">${Math.round(pct)}%</span></div>
+            <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${Math.min(pct, 100)}%;background:${color}"></div></div>
+            <div class="cc-stats">${statsParts.join('<span class="sep">·</span>')}</div>
+          </div></details>`;
+      }
+
+      // FEMA — compact card (default collapsed)
+      if (f?.[0]) {
+        const fr = f[0];
+        const name = resolvedCountyName || `County ${countyFips}`;
+        const last = (fr.most_recent_title || "").trim();
+        const decl = fr.total_declarations || 0;
+        const dpy = fr.declarations_per_year != null ? Number(fr.declarations_per_year).toFixed(1) : null;
+        const hazard = fr.top_hazard || "Hurricane";
+        const hurr = fr.hurricane_count || 0;
+        const flood = fr.flood_count || 0;
+        const statsParts = [];
+        if (dpy) statsParts.push(`<span>≈${dpy}/yr</span>`);
+        statsParts.push(`<span>Top: <strong>${hazard}</strong></span>`);
+        statsParts.push(`<span><strong>${hurr}</strong> hurricane</span>`);
+        statsParts.push(`<span><strong>${flood}</strong> flood</span>`);
+        extra += `<details class="tp-acc"><summary class="tp-section">FEMA Disaster History</summary>
+          <div class="cc-card">
+            <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:#a51c30">${decl}</span></div>
+            <div class="cc-stats">${statsParts.join('<span class="sep">·</span>')}</div>
+            ${last ? `<div class="cc-recent">Most recent: <strong>${last}</strong></div>` : ""}
+          </div></details>`;
       }
 
       if (!extra) {
