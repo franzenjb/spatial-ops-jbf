@@ -593,6 +593,24 @@
     .tp-kv-val { font-size: 11px; font-weight: 600; color: #333; }
     .corr-narrative { font-size: 12px; line-height: 1.5; color: #444; margin: 4px 0 8px; padding: 8px 10px; background: #faf7f5; border-left: 3px solid #a51c30; border-radius: 4px; }
     body.dark .corr-narrative { background: rgba(255,255,255,0.04); color: #ccdaeb; }
+    /* Compact per-county cards (ALICE / FEMA) */
+    .cc-card { padding: 8px 10px; background: #faf7f5; border-radius: 5px; margin-bottom: 6px; border-left: 3px solid #a51c30; }
+    .cc-card + .cc-card { margin-top: 0; }
+    .cc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+    .cc-name { font-size: 12px; font-weight: 700; color: #333; }
+    .cc-lead { font-size: 16px; font-weight: 800; line-height: 1; }
+    .cc-bar-track { height: 4px; background: rgba(0,0,0,0.08); border-radius: 2px; overflow: hidden; margin: 4px 0 6px; }
+    .cc-bar-fill { height: 100%; border-radius: 2px; }
+    .cc-stats { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 11px; color: #555; line-height: 1.4; }
+    .cc-stats strong { color: #222; font-weight: 700; }
+    .cc-stats .sep { color: #bbb; }
+    .cc-recent { font-size: 11px; color: #555; margin-top: 2px; font-style: italic; }
+    body.dark .cc-card { background: rgba(255,255,255,0.04); }
+    body.dark .cc-name { color: #ccdaeb; }
+    body.dark .cc-stats { color: #8899aa; }
+    body.dark .cc-stats strong { color: #ccdaeb; }
+    body.dark .cc-stats .sep { color: #445566; }
+    body.dark .cc-recent { color: #8899aa; }
 
     /* ── Dark mode overrides ──────────────────────────────── */
     body.dark .ctx-section { border-bottom-color: rgba(255,255,255,0.06); background: #1a1e26; }

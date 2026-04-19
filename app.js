@@ -1224,9 +1224,20 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     return `$${Math.round(n).toLocaleString()}`;
   };
   const kv = (k, v) => `<div class="tp-kv"><span class="tp-kv-key">${k}</span><span class="tp-kv-val">${v}</span></div>`;
-  const bar = (label, val, isScore) => {
+  const bar = (label, val, isScore, popForPct) => {
     if (val == null || isNaN(val)) return "";
-    const display = isScore ? Math.round(val) : Math.round(val * 100) + "%";
+    let display;
+    if (isScore) {
+      display = Math.round(val);
+    } else {
+      const pct = Math.round(val * 100);
+      if (popForPct && popForPct > 0) {
+        const absolute = Math.round(val * popForPct);
+        display = `${pct}% · ${compactMoney(absolute).replace("$","")}`;
+      } else {
+        display = `${pct}%`;
+      }
+    }
     const fillPct = isScore ? val : val * 100;
     const color = isScore
       ? (val >= 80 ? "#e05070" : val >= 60 ? "#e07830" : val >= 40 ? "#d4b020" : val >= 20 ? "#78aa28" : "#6abf9e")
@@ -1252,22 +1263,30 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     <div class="tp-caption">All data reflects tracts, parcels, and records within or touching the analysis area</div>`;
   }
 
-  // FEMA — one block per county, narrative-first, no redundant roll-up row
+  // FEMA — compact per-county cards under a single section header
   let femaBlock = "";
   if (femaRows.length) {
     const byDecl = [...femaRows].sort((a, b) => (b.total_declarations || 0) - (a.total_declarations || 0));
-    femaBlock = byDecl.map((r, idx) => {
+    const cards = byDecl.map(r => {
       const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
       const last = (r.most_recent_title || "").trim();
       const decl = r.total_declarations || 0;
       const dpy = r.declarations_per_year || 0;
       const hazard = r.top_hazard || "Hurricane";
-      const headingStyle = idx > 0 ? ' style="margin-top:12px"' : '';
-      return `<div class="tp-section"${headingStyle}>FEMA Disaster History — ${name}</div>
-        <div class="corr-narrative"><strong>${decl}</strong> federal declarations (≈${dpy.toFixed(1)}/yr). Top hazard: <strong>${hazard}</strong>.${last ? ` Most recent: <strong>${last}</strong>.` : ""}</div>
-        ${kv("Hurricane declarations", `<strong>${r.hurricane_count || 0}</strong>`)}
-        ${kv("Flood declarations", `<strong>${r.flood_count || 0}</strong>`)}`;
+      const hurr = r.hurricane_count || 0;
+      const flood = r.flood_count || 0;
+      return `<div class="cc-card">
+        <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:#a51c30">${decl}</span></div>
+        <div class="cc-stats">
+          <span>≈${dpy.toFixed(1)}/yr</span><span class="sep">·</span>
+          <span>Top: <strong>${hazard}</strong></span><span class="sep">·</span>
+          <span><strong>${hurr}</strong> hurricane</span><span class="sep">·</span>
+          <span><strong>${flood}</strong> flood</span>
+        </div>
+        ${last ? `<div class="cc-recent">Most recent: <strong>${last}</strong></div>` : ""}
+      </div>`;
     }).join("");
+    femaBlock = `<div class="tp-section">FEMA Disaster History</div>${cards}`;
   }
 
   const el = document.getElementById("corridor-results");
@@ -1285,11 +1304,11 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${validSVI.length ? `
     <div class="tp-section">Social Vulnerability (SVI)</div>
     ${kv("Affected tracts", validSVI.length)}
-    ${bar("Overall vulnerability", avgRpl, false)}
-    ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false)}
-    ${bar("Household", avg(validSVI, "rpl_theme2"), false)}
-    ${bar("Racial & Ethnic Minority", avg(validSVI, "rpl_theme3"), false)}
-    ${bar("Housing & Transportation", avg(validSVI, "rpl_theme4"), false)}
+    ${bar("Overall vulnerability", avgRpl, false, totalPop)}
+    ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false, totalPop)}
+    ${bar("Household", avg(validSVI, "rpl_theme2"), false, totalPop)}
+    ${bar("Racial & Ethnic Minority", avg(validSVI, "rpl_theme3"), false, totalPop)}
+    ${bar("Housing & Transportation", avg(validSVI, "rpl_theme4"), false, totalPop)}
     ` : ""}
 
     ${validNRI.length ? `
@@ -1302,15 +1321,25 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${kv("Expected annual loss", `<strong>${compactMoney(totalEAL)}</strong>`)}
     ` : ""}
 
-    ${aliceRows.length ? aliceRows.map((r, idx) => {
-      const pop = r.population || 0;
-      const pct = r.pct_struggling || 0;
-      const struggling = Math.round(pop * (pct / 100));
-      const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
-      const headingStyle = idx > 0 ? ' style="margin-top:12px"' : '';
-      return `<div class="tp-section"${headingStyle}>Economic Hardship (ALICE) — ${name}</div>
-        <div class="corr-narrative">Covering <strong>${compactMoney(pop).replace("$","")} residents</strong>, an estimated <strong>${compactMoney(struggling).replace("$","")}</strong> live in struggling households (ALICE + poverty, <strong>${Math.round(pct)}%</strong>). Median household income: <strong>$${num(r.median_income)}</strong>.</div>`;
-    }).join("") : ""}
+    ${aliceRows.length ? (() => {
+      const cards = aliceRows.map(r => {
+        const pop = r.population || 0;
+        const pct = r.pct_struggling || 0;
+        const struggling = Math.round(pop * (pct / 100));
+        const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
+        const color = pct >= 35 ? "#e05070" : pct >= 25 ? "#e07830" : pct >= 15 ? "#a16207" : "#78aa28";
+        return `<div class="cc-card">
+          <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:${color}">${Math.round(pct)}%</span></div>
+          <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${Math.min(pct, 100)}%;background:${color}"></div></div>
+          <div class="cc-stats">
+            <span><strong>${compactMoney(struggling).replace("$","")}</strong> struggling</span><span class="sep">·</span>
+            <span>of <strong>${compactMoney(pop).replace("$","")}</strong> residents</span><span class="sep">·</span>
+            <span>median <strong>$${num(r.median_income)}</strong></span>
+          </div>
+        </div>`;
+      }).join("");
+      return `<div class="tp-section">Economic Hardship (ALICE)</div>${cards}`;
+    })() : ""}
 
     ${femaBlock}
 
