@@ -1211,7 +1211,13 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
 
   const accSection = document.getElementById("acc-corridor-results");
   accSection.classList.add("active");
+  const accLabel = accSection.querySelector(".acc-label");
+  if (accLabel) accLabel.textContent = `${analysisType} Analysis`;
   toggleAccordion("acc-corridor-results", true);
+  // Scroll the results into view so users see them without hunting
+  requestAnimationFrame(() => {
+    accSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 
   // Shared helpers (mirror the tract popup for visual consistency)
   const num  = v => (v == null ? "—" : Number(v).toLocaleString());
@@ -1436,6 +1442,8 @@ document.getElementById("corridor-clear-btn").addEventListener("click", () => {
   document.getElementById("corridor-clear-btn").style.display = "none";
   const accCR = document.getElementById("acc-corridor-results");
   accCR.classList.remove("active");
+  const accLabel = accCR.querySelector(".acc-label");
+  if (accLabel) accLabel.textContent = "Corridor Analysis";
   toggleAccordion("acc-corridor-results", false);
   toggleAccordion("acc-results", false);
   // Reset KPI
