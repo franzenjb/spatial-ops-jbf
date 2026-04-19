@@ -1762,7 +1762,7 @@ function buildParcelPopupHTML(a, tileProps) {
 
   const cat = val >= 1e6 ? "#e05070"
             : val >= 5e5 ? "#e07830"
-            : val >= 3e5 ? "#d4b020"
+            : val >= 3e5 ? "#a16207"
             : val >= 1.5e5 ? "#78aa28"
             : val >= 5e4 ? "#6abf9e"
             : "#888";
@@ -1783,9 +1783,10 @@ function buildParcelPopupHTML(a, tileProps) {
   }
 
   html += `<div class="tp-section" style="margin-top:0">Property Details</div>`;
+  if (a.addr) html += kv("Address", a.addr);
   if (a.owner) html += kv("Owner", a.owner);
   const locParts = [a.city, a.zip].filter(Boolean);
-  if (locParts.length) html += kv("Location", locParts.join(" "));
+  if (locParts.length) html += kv("City / ZIP", locParts.join(" "));
   if (a.county) html += kv("County", a.county);
   if (yb) html += kv("Year built", yb);
   if (sf > 0) html += kv("Square feet", fmt(sf));
@@ -1824,7 +1825,7 @@ function buildParcelPopupHTML(a, tileProps) {
 
   // No-API fallback note
   if (!a.owner && !a.addr) {
-    html += `<div style="margin-top:10px;color:#999;font-size:11px;font-style:italic">Limited data — detailed owner/address records not available for this parcel.</div>`;
+    html += `<div class="tp-caption" style="text-align:left">Limited data — detailed owner/address records not available for this parcel.</div>`;
   }
 
   return html;
