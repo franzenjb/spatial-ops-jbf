@@ -1162,7 +1162,7 @@ async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, an
         sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
         sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
         sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
-        sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
+        sbFetch("fema_declarations", `select=fips_5,county_name,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
         sbFetch("county_rankings", `select=county_fips,population&county_fips=${countyFilter}`),
       ]).then(([s, n, a, f, cr]) => {
         sviRows = s; nriRows = n; femaRows = f;
@@ -1282,16 +1282,6 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${kv("Shelters", `<strong>${sheltsIn.length}</strong>`)}
     ${kv("DAT Volunteers", `<strong>${volsIn.length}</strong>`)}
 
-    ${aliceRows.length ? aliceRows.map((r, idx) => {
-      const pop = r.population || 0;
-      const pct = r.pct_struggling || 0;
-      const struggling = Math.round(pop * (pct / 100));
-      const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
-      const headingStyle = idx > 0 ? ' style="margin-top:12px"' : '';
-      return `<div class="tp-section"${headingStyle}>Economic Hardship (ALICE) — ${name}</div>
-        <div class="corr-narrative">Covering <strong>${compactMoney(pop).replace("$","")} residents</strong>, an estimated <strong>${compactMoney(struggling).replace("$","")}</strong> live in struggling households (ALICE + poverty, <strong>${Math.round(pct)}%</strong>). Median household income: <strong>$${num(r.median_income)}</strong>.</div>`;
-    }).join("") : ""}
-
     ${validSVI.length ? `
     <div class="tp-section">Social Vulnerability (SVI)</div>
     ${kv("Affected tracts", validSVI.length)}
@@ -1311,6 +1301,16 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${bar("Wildfire", avg(validNRI, "wfir_risks"), true)}
     ${kv("Expected annual loss", `<strong>${compactMoney(totalEAL)}</strong>`)}
     ` : ""}
+
+    ${aliceRows.length ? aliceRows.map((r, idx) => {
+      const pop = r.population || 0;
+      const pct = r.pct_struggling || 0;
+      const struggling = Math.round(pop * (pct / 100));
+      const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
+      const headingStyle = idx > 0 ? ' style="margin-top:12px"' : '';
+      return `<div class="tp-section"${headingStyle}>Economic Hardship (ALICE) — ${name}</div>
+        <div class="corr-narrative">Covering <strong>${compactMoney(pop).replace("$","")} residents</strong>, an estimated <strong>${compactMoney(struggling).replace("$","")}</strong> live in struggling households (ALICE + poverty, <strong>${Math.round(pct)}%</strong>). Median household income: <strong>$${num(r.median_income)}</strong>.</div>`;
+    }).join("") : ""}
 
     ${femaBlock}
 
@@ -2196,7 +2196,7 @@ document.getElementById("filter-analyze-btn").addEventListener("click", async ()
       sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
       sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
       sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
-      sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
+      sbFetch("fema_declarations", `select=fips_5,county_name,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
     ]);
 
     const fmt = n => Number(n).toLocaleString();
