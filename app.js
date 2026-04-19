@@ -1309,12 +1309,12 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
 
     ${validSVI.length ? `
     <div class="tp-section">Social Vulnerability (SVI)</div>
-    ${kv("Affected tracts", validSVI.length)}
-    ${bar("Overall vulnerability", avgRpl, false, totalPop)}
-    ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false, totalPop)}
-    ${bar("Household", avg(validSVI, "rpl_theme2"), false, totalPop)}
-    ${bar("Racial & Ethnic Minority", avg(validSVI, "rpl_theme3"), false, totalPop)}
-    ${bar("Housing & Transportation", avg(validSVI, "rpl_theme4"), false, totalPop)}
+    <div class="tp-caption" style="text-align:left;margin:-2px 0 6px">Percentile rank vs. all US tracts · ${validSVI.length} tract${validSVI.length === 1 ? "" : "s"} · ${num(totalPop)} residents in scope</div>
+    ${bar("Overall vulnerability", avgRpl, false)}
+    ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false)}
+    ${bar("Household", avg(validSVI, "rpl_theme2"), false)}
+    ${bar("Racial & Ethnic Minority", avg(validSVI, "rpl_theme3"), false)}
+    ${bar("Housing & Transportation", avg(validSVI, "rpl_theme4"), false)}
     ` : ""}
 
     ${validNRI.length ? `
@@ -1899,11 +1899,11 @@ function buildTractPopupHTML(geoid, bbox) {
     if (svi.e_age65) html += kv("Age 65+", num(svi.e_age65));
     if (svi.e_disabl) html += kv("Disabled", num(svi.e_disabl));
     html += `<div class="tp-section">SVI Sub-Themes</div>`;
-    const tractPop = svi.e_totpop || 0;
-    html += bar("Socioeconomic Status", svi.rpl_theme1, false, tractPop);
-    html += bar("Household Characteristics", svi.rpl_theme2, false, tractPop);
-    html += bar("Racial & Ethnic Minority", svi.rpl_theme3, false, tractPop);
-    html += bar("Housing & Transportation", svi.rpl_theme4, false, tractPop);
+    html += `<div class="tp-caption" style="text-align:left;margin:-2px 0 6px">Percentile rank vs. all US tracts</div>`;
+    html += bar("Socioeconomic Status", svi.rpl_theme1, false);
+    html += bar("Household Characteristics", svi.rpl_theme2, false);
+    html += bar("Racial & Ethnic Minority", svi.rpl_theme3, false);
+    html += bar("Housing & Transportation", svi.rpl_theme4, false);
   }
 
   if (nri) {
