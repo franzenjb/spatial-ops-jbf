@@ -1475,7 +1475,11 @@ document.getElementById("corridor-clear-btn").addEventListener("click", () => {
     document.getElementById("stat-volunteers").textContent  = volunteers.length;
   }
   const _st = window._currentState || { name: "Florida" };
-  document.querySelector("#top-bar-sub").textContent = `${_st.name} — 7 datasets`;
+  // Restore the full sub label if we have the tract count cached; otherwise fall back
+  const tractCount = (_tractFeatures || []).length;
+  document.querySelector("#top-bar-sub").textContent = tractCount
+    ? `${_st.name} — 7 datasets · ${tractCount.toLocaleString()} census tracts`
+    : `${_st.name} — 7 datasets`;
 });
 
 // ── Accordion ───────────────────────────────────────────────────────────────
