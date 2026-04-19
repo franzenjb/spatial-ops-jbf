@@ -199,6 +199,7 @@ const map = new maplibregl.Map({
   maxPitch: 0,
   dragRotate: false,
 });
+window.map = map;
 
 // Disable rotation
 map.touchZoomRotate.disableRotation();
@@ -229,7 +230,7 @@ map.on("load", async () => {
   // ── Parcel layer (MVT from tiles.jbf.com) ───────────────────────────────
   map.addSource("parcels-source", {
     type: "vector",
-    tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt"],
+    tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt?v=2026-04-19"],
     minzoom: 11,
     maxzoom: 16,
   });
@@ -471,9 +472,10 @@ map.on("load", async () => {
       if (tractFeats.length > 0) {
         const geoid = tractFeats[0].properties.GEOID;
         const sviData = window._sviFullMap?.get(geoid);
+        const bbox = tractBbox(tractFeats[0].geometry);
         showFeaturePanel(
           sviData?.location || ("Census Tract " + geoid),
-          buildTractPopupHTML(geoid)
+          buildTractPopupHTML(geoid, bbox)
         );
       }
     }
@@ -1018,6 +1020,19 @@ function distToSegment(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+function tractBbox(geom) {
+  if (!geom?.coordinates) return null;
+  let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
+  const walk = a => {
+    if (typeof a[0] === "number") {
+      if (a[0] < xmin) xmin = a[0]; if (a[0] > xmax) xmax = a[0];
+      if (a[1] < ymin) ymin = a[1]; if (a[1] > ymax) ymax = a[1];
+    } else a.forEach(walk);
+  };
+  walk(geom.coordinates);
+  return isFinite(xmin) ? { xmin, ymin, xmax, ymax } : null;
+}
+
 async function runCorridorAnalysis(lineGeom) {
   const miles = parseInt(document.getElementById("corridor-miles").value, 10);
   const threshDeg = (miles * 1609.34) / 111320;
@@ -1198,11 +1213,13 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
   const totalDisabled = validSVI.reduce((s, r) => s + (r.e_disabl || 0), 0);
   const validNRI = nriRows.filter(r => r.risk_score !== null);
   const flood = (r) => Math.max(r.cfld_risks ?? 0, r.ifld_risks ?? 0);
+  const avgNriScore = validNRI.length ? avg(validNRI, "risk_score") : null;
   const totalEAL = validNRI.reduce((s, r) => s + (r.eal_valt || 0), 0);
-  const avgStruggling = aliceRows.length ? (aliceRows.reduce((s, r) => s + (r.pct_struggling || 0), 0) / aliceRows.length).toFixed(1) : null;
+  const avgStruggling = aliceRows.length ? aliceRows.reduce((s, r) => s + (r.pct_struggling || 0), 0) / aliceRows.length : null;
   const avgMedian = aliceRows.length ? Math.round(aliceRows.reduce((s, r) => s + (r.median_income || 0), 0) / aliceRows.length) : null;
   const totalDecl = femaRows.reduce((s, r) => s + (r.total_declarations || 0), 0);
   const totalHurr = femaRows.reduce((s, r) => s + (r.hurricane_count || 0), 0);
+  const totalFlood = femaRows.reduce((s, r) => s + (r.flood_count || 0), 0);
 
   // Update KPI bar
   document.getElementById("stat-fires").textContent       = firesIn.length;
@@ -1219,78 +1236,128 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
   accSection.classList.add("active");
   toggleAccordion("acc-corridor-results", true);
 
+  // Shared helpers (mirror the tract popup for visual consistency)
+  const num  = v => (v == null ? "—" : Number(v).toLocaleString());
+  const int  = v => (v == null ? "—" : Math.round(Number(v)).toLocaleString());
+  const compactMoney = v => {
+    const n = Number(v) || 0;
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+    return `$${Math.round(n).toLocaleString()}`;
+  };
+  const kv = (k, v) => `<div class="tp-kv"><span class="tp-kv-key">${k}</span><span class="tp-kv-val">${v}</span></div>`;
+  const bar = (label, val, isScore) => {
+    if (val == null || isNaN(val)) return "";
+    const display = isScore ? Math.round(val) : Math.round(val * 100) + "%";
+    const fillPct = isScore ? val : val * 100;
+    const color = isScore
+      ? (val >= 80 ? "#e05070" : val >= 60 ? "#e07830" : val >= 40 ? "#d4b020" : val >= 20 ? "#78aa28" : "#6abf9e")
+      : (val >= 0.75 ? "#e05070" : val >= 0.50 ? "#e07830" : val >= 0.25 ? "#d4b020" : "#78aa28");
+    return `<div class="tp-bar-row"><div class="tp-bar-head"><span>${label}</span><span>${display}</span></div>
+      <div class="tp-bar-track"><div class="tp-bar-fill" style="width:${Math.min(fillPct, 100)}%;background:${color}"></div></div></div>`;
+  };
+
+  // Combined risk hero (matches tract popup)
+  let hero = "";
+  if (avgRpl != null && avgNriScore != null) {
+    const combined = Math.round((avgRpl * 100 + avgNriScore) / 2);
+    const cCat = combined >= 75 ? { label: "Very High Combined Risk", color: "#e05070" }
+               : combined >= 50 ? { label: "High Combined Risk", color: "#e07830" }
+               : combined >= 25 ? { label: "Moderate Combined Risk", color: "#d4b020" }
+               : { label: "Low Combined Risk", color: "#78aa28" };
+    hero = `<div class="tp-hero">
+      <div class="tp-hero-label">Combined Risk Score</div>
+      <div class="tp-hero-score" style="color:${cCat.color}">${combined}</div>
+      <div class="tp-hero-cat" style="color:${cCat.color}">${cCat.label}</div>
+      <div class="tp-hero-tract">${analysisType} view · ${validSVI.length} tract${validSVI.length === 1 ? "" : "s"} · ${aliceRows.length} count${aliceRows.length === 1 ? "y" : "ies"}</div>
+    </div>`;
+  }
+
+  // FEMA narrative
+  let femaBlock = "";
+  if (femaRows.length) {
+    const byDecl = [...femaRows].sort((a, b) => (b.total_declarations || 0) - (a.total_declarations || 0));
+    const topCounty = byDecl[0];
+    const mostRecent = (topCounty?.most_recent_title || "").trim();
+    const hazardCounts = {};
+    femaRows.forEach(r => { if (r.top_hazard) hazardCounts[r.top_hazard] = (hazardCounts[r.top_hazard] || 0) + 1; });
+    const topHazard = Object.entries(hazardCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "Hurricane";
+    const avgPerYear = femaRows.reduce((s, r) => s + (r.declarations_per_year || 0), 0) / femaRows.length;
+    const narrative = `${femaRows.length} count${femaRows.length === 1 ? "y" : "ies"} · <strong>${totalDecl}</strong> federal declarations (≈${avgPerYear.toFixed(1)}/yr). Top hazard: <strong>${topHazard}</strong>.${mostRecent ? ` Most recent: <strong>${mostRecent}</strong>.` : ""}`;
+    const perCounty = byDecl.map(r => {
+      const last = (r.most_recent_title || "").trim();
+      return `<div class="tp-kv"><span class="tp-kv-key">${r.county_name || r.fips_5}</span><span class="tp-kv-val">${r.total_declarations}${last ? ` · ${last}` : ""}</span></div>`;
+    }).join("");
+    femaBlock = `<div class="tp-section">FEMA Disaster History</div>
+      <div class="corr-narrative">${narrative}</div>
+      ${kv("Hurricane declarations", `<strong>${totalHurr}</strong>`)}
+      ${kv("Flood declarations", `<strong>${totalFlood}</strong>`)}
+      ${perCounty}`;
+  }
+
   const el = document.getElementById("corridor-results");
   el.innerHTML = `
-    <div class="corr-header">Population & Demographics</div>
-    <hr class="corr-divider">
-    ${totalPop > 0 ? `<div class="corr-row"><span>Estimated population:</span><span><strong>${totalPop.toLocaleString()}</strong></span></div>` : ""}
-    ${totalElderly > 0 ? `<div class="corr-row"><span>Age 65+:</span><span><strong>${totalElderly.toLocaleString()}</strong></span></div>` : ""}
-    ${totalDisabled > 0 ? `<div class="corr-row"><span>Disabled:</span><span><strong>${totalDisabled.toLocaleString()}</strong></span></div>` : ""}
-    <div class="corr-row"><span>Fires:</span><span><strong>${firesIn.length}</strong> (${noRC} no RC response)</span></div>
-    <div class="corr-row"><span>Shelters:</span><span><strong>${sheltsIn.length}</strong></span></div>
-    <div class="corr-row"><span>DAT Volunteers:</span><span><strong>${volsIn.length}</strong></span></div>
+    ${hero}
+
+    <div class="tp-section" style="margin-top:0">Population & Response</div>
+    ${totalPop > 0    ? kv("Estimated population", `<strong>${num(totalPop)}</strong>`) : ""}
+    ${totalElderly > 0 ? kv("Age 65+", `<strong>${num(totalElderly)}</strong>`) : ""}
+    ${totalDisabled > 0 ? kv("Disabled", `<strong>${num(totalDisabled)}</strong>`) : ""}
+    ${kv("Fires", `<strong>${firesIn.length}</strong> (${noRC} no RC response)`)}
+    ${kv("Shelters", `<strong>${sheltsIn.length}</strong>`)}
+    ${kv("DAT Volunteers", `<strong>${volsIn.length}</strong>`)}
 
     ${aliceRows.length ? `
-    <div class="corr-header" style="margin-top:10px">Economic Hardship (ALICE)</div>
-    <hr class="corr-divider">
-    <div class="corr-row"><span>Counties in area:</span><span>${aliceRows.length}</span></div>
-    <div class="corr-row"><span>Avg struggling (ALICE+poverty):</span><span><strong>${avgStruggling}%</strong></span></div>
-    <div class="corr-row"><span>Avg median income:</span><span><strong>$${avgMedian.toLocaleString()}</strong></span></div>
-    ${aliceRows.map(r => `<div class="corr-chapter">• ${r.county_name}: <strong>${r.pct_struggling}%</strong> struggling ($${r.median_income.toLocaleString()})</div>`).join("")}
+    <div class="tp-section">Economic Hardship (ALICE)</div>
+    ${kv("Counties in area", aliceRows.length)}
+    ${kv("Avg struggling (ALICE + poverty)", `<strong>${Math.round(avgStruggling)}%</strong>`)}
+    ${kv("Avg median income", `<strong>$${num(avgMedian)}</strong>`)}
+    ${aliceRows.map(r => kv(r.county_name, `<strong>${Math.round(r.pct_struggling)}%</strong> struggling · $${num(r.median_income)}`)).join("")}
     ` : ""}
 
     ${validSVI.length ? `
-    <div class="corr-header" style="margin-top:10px">Social Vulnerability (SVI)</div>
-    <hr class="corr-divider">
-    <div class="corr-row"><span>Affected tracts:</span><span>${validSVI.length}</span></div>
-    <div class="corr-row"><span>Avg vulnerability:</span><span><strong>${Math.round(avgRpl * 100)}%</strong></span></div>
-    <div class="corr-row"><span>Socioeconomic:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme1") * 100)}%</strong></span></div>
-    <div class="corr-row"><span>Household:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme2") * 100)}%</strong></span></div>
-    <div class="corr-row"><span>Minority:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme3") * 100)}%</strong></span></div>
-    <div class="corr-row"><span>Housing:</span><span><strong>${Math.round(avg(validSVI, "rpl_theme4") * 100)}%</strong></span></div>
-    ` : `<div class="corr-row" style="color:#999;margin-top:6px;font-size:11px;">No SVI data</div>`}
+    <div class="tp-section">Social Vulnerability (SVI)</div>
+    ${kv("Affected tracts", validSVI.length)}
+    ${bar("Overall vulnerability", avgRpl, false)}
+    ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false)}
+    ${bar("Household", avg(validSVI, "rpl_theme2"), false)}
+    ${bar("Racial & Ethnic Minority", avg(validSVI, "rpl_theme3"), false)}
+    ${bar("Housing & Transportation", avg(validSVI, "rpl_theme4"), false)}
+    ` : ""}
 
     ${validNRI.length ? `
-    <div class="corr-header" style="margin-top:10px">NRI Hazard Risk</div>
-    <hr class="corr-divider">
-    <div class="corr-row"><span>Avg risk score:</span><span><strong>${Math.round(avg(validNRI, "risk_score"))}</strong></span></div>
-    <div class="corr-row"><span>Hurricane:</span><span><strong>${Math.round(avg(validNRI, "hrcn_risks"))}</strong></span></div>
-    <div class="corr-row"><span>Flood (max coastal/inland):</span><span><strong>${Math.round(avg(validNRI.map(r => ({ flood: flood(r) })), "flood"))}</strong></span></div>
-    <div class="corr-row"><span>Tornado:</span><span><strong>${Math.round(avg(validNRI, "trnd_risks"))}</strong></span></div>
-    <div class="corr-row"><span>Wildfire:</span><span><strong>${Math.round(avg(validNRI, "wfir_risks"))}</strong></span></div>
-    <div class="corr-row"><span>Expected annual loss:</span><span><strong>$${Math.round(totalEAL).toLocaleString()}</strong></span></div>
+    <div class="tp-section">NRI Hazard Risk</div>
+    ${bar("Overall risk score", avgNriScore, true)}
+    ${bar("Hurricane", avg(validNRI, "hrcn_risks"), true)}
+    ${bar("Flood (max coastal/inland)", avg(validNRI.map(r => ({ flood: flood(r) })), "flood"), true)}
+    ${bar("Tornado", avg(validNRI, "trnd_risks"), true)}
+    ${bar("Wildfire", avg(validNRI, "wfir_risks"), true)}
+    ${kv("Expected annual loss", `<strong>${compactMoney(totalEAL)}</strong>`)}
     ` : ""}
 
-    ${femaRows.length ? `
-    <div class="corr-header" style="margin-top:10px">FEMA Disaster History</div>
-    <hr class="corr-divider">
-    <div class="corr-row"><span>Total declarations:</span><span><strong>${totalDecl}</strong></span></div>
-    <div class="corr-row"><span>Hurricane declarations:</span><span><strong>${totalHurr}</strong></span></div>
-    ${femaRows.map(r => `<div class="corr-chapter">• ${r.fips_5}: ${r.total_declarations} declarations (last: ${r.most_recent_title?.trim()})</div>`).join("")}
-    ` : ""}
+    ${femaBlock}
 
     ${chapters.length ? `
-    <div class="corr-header" style="margin-top:10px">RC Chapters in Corridor</div>
-    <hr class="corr-divider">
-    ${chapters.map(([ch, n]) => `<div class="corr-chapter">• ${ch}: ${n} fire${n !== 1 ? "s" : ""}</div>`).join("")}
+    <div class="tp-section">RC Chapters in Corridor</div>
+    ${chapters.map(([ch, n]) => kv(ch, `${n} fire${n !== 1 ? "s" : ""}`)).join("")}
     ` : ""}
 
     ${parcelStats && parcelStats.total_parcels > 0 ? `
-    <div class="corr-header" style="margin-top:10px">Property Data (Florida Parcels)</div>
-    <hr class="corr-divider">
-    <div class="corr-row"><span>Total parcels:</span><span><strong>${Number(parcelStats.total_parcels).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Residential:</span><span><strong>${Number(parcelStats.residential).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Commercial/Other:</span><span><strong>${Number(parcelStats.commercial).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Avg assessed value:</span><span><strong>$${Number(parcelStats.avg_assessed).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Median assessed:</span><span><strong>$${Number(parcelStats.median_assessed).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Total assessed value:</span><span><strong>$${Number(parcelStats.total_assessed).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Avg year built:</span><span><strong>${parcelStats.avg_year_built}</strong></span></div>
-    <div class="corr-row"><span>Pre-1970:</span><span><strong>${Number(parcelStats.pre_1970).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Post-2000:</span><span><strong>${Number(parcelStats.post_2000).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Avg sq ft:</span><span><strong>${Number(parcelStats.avg_sqft).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Total acres:</span><span><strong>${Number(parcelStats.total_acres).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Over $500K:</span><span><strong>${Number(parcelStats.over_500k).toLocaleString()}</strong></span></div>
-    <div class="corr-row"><span>Over $1M:</span><span><strong>${Number(parcelStats.over_1m).toLocaleString()}</strong></span></div>
+    <div class="tp-section">Property Data (Florida Parcels)</div>
+    ${kv("Total parcels", `<strong>${num(parcelStats.total_parcels)}</strong>`)}
+    ${kv("Residential", num(parcelStats.residential))}
+    ${kv("Commercial / other", num(parcelStats.commercial))}
+    ${kv("Avg assessed value", `<strong>${compactMoney(parcelStats.avg_assessed)}</strong>`)}
+    ${kv("Median assessed", compactMoney(parcelStats.median_assessed))}
+    ${kv("Total assessed value", `<strong>${compactMoney(parcelStats.total_assessed)}</strong>`)}
+    ${kv("Avg year built", parcelStats.avg_year_built)}
+    ${kv("Pre-1970", num(parcelStats.pre_1970))}
+    ${kv("Post-2000", num(parcelStats.post_2000))}
+    ${kv("Avg sq ft", num(parcelStats.avg_sqft))}
+    ${kv("Total acres", int(parcelStats.total_acres))}
+    ${kv("Over $500K", num(parcelStats.over_500k))}
+    ${kv("Over $1M", num(parcelStats.over_1m))}
     ` : ""}
   `;
 }
@@ -1662,11 +1729,18 @@ function buildFeaturePopupHTML(type, attrs) {
   return html;
 }
 
-function buildTractPopupHTML(geoid) {
+function buildTractPopupHTML(geoid, bbox) {
   const svi = window._sviFullMap?.get(geoid);
   const nri = window._nriMap?.get(geoid);
   const pct = v => (v != null && v >= 0) ? Math.round(v * 100) + "%" : "—";
   const num = v => (v != null) ? (+v).toLocaleString() : "—";
+  const compactMoney = v => {
+    const n = Number(v) || 0;
+    if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+    return `$${Math.round(n).toLocaleString()}`;
+  };
 
   function bar(label, val, isScore) {
     const display = isScore ? Math.round(val) : Math.round(val * 100) + "%";
@@ -1721,27 +1795,47 @@ function buildTractPopupHTML(geoid) {
     }
   }
 
-  // Async ALICE + FEMA fetch
+  // Async ALICE + FEMA + Parcels fetch
   const countyFips = geoid.slice(0, 5);
   const asyncId = "tract-async-" + Date.now();
   html += `<div id="${asyncId}"></div>`;
+  const parcelPromise = bbox
+    ? fetch(`${PARCEL_API}/api/stats?xmin=${bbox.xmin}&ymin=${bbox.ymin}&xmax=${bbox.xmax}&ymax=${bbox.ymax}`).then(r => r.ok ? r.json() : null).catch(() => null)
+    : Promise.resolve(null);
   setTimeout(() => {
     Promise.all([
       sbFetch("alice", "select=*&fips_5=eq." + countyFips),
       sbFetch("fema_declarations", "select=*&fips_5=eq." + countyFips),
-    ]).then(([a, f]) => {
+      parcelPromise,
+    ]).then(([a, f, p]) => {
       const el = document.getElementById(asyncId);
       if (!el) return;
       let extra = "";
+      if (p && p.total_parcels > 0) {
+        extra += `<div class="tp-section">Property Data (Florida Parcels)</div>`;
+        extra += kv("Total parcels", `<strong>${num(p.total_parcels)}</strong>`);
+        if (p.residential != null) extra += kv("Residential", num(p.residential));
+        if (p.avg_assessed != null) extra += kv("Avg assessed value", `<strong>${compactMoney(p.avg_assessed)}</strong>`);
+        if (p.median_assessed != null) extra += kv("Median assessed", compactMoney(p.median_assessed));
+        if (p.total_assessed != null) extra += kv("Total assessed value", `<strong>${compactMoney(p.total_assessed)}</strong>`);
+        if (p.avg_year_built) extra += kv("Avg year built", Math.round(p.avg_year_built));
+        if (p.over_500k != null) extra += kv("Over $500K", num(p.over_500k));
+        if (p.over_1m != null) extra += kv("Over $1M", num(p.over_1m));
+      }
       if (a?.[0]) {
-        extra += `<div class="tp-section">ALICE</div>`;
-        extra += kv("Struggling", a[0].pct_struggling + "%");
-        extra += kv("Median income", "$" + num(a[0].median_income));
+        extra += `<div class="tp-section">Economic Hardship (ALICE)</div>`;
+        extra += kv("Struggling (ALICE + poverty)", `<strong>${Math.round(a[0].pct_struggling)}%</strong>`);
+        extra += kv("Median household income", `<strong>$${num(a[0].median_income)}</strong>`);
       }
       if (f?.[0]) {
-        extra += `<div class="tp-section">FEMA</div>`;
-        extra += kv("Declarations", f[0].total_declarations);
-        extra += kv("Top Hazard", f[0].top_hazard || "—");
+        const fr = f[0];
+        const mostRecent = (fr.most_recent_title || "").trim();
+        const perYear = fr.declarations_per_year != null ? Number(fr.declarations_per_year).toFixed(1) : null;
+        extra += `<div class="tp-section">FEMA Disaster History</div>`;
+        const narrative = `<strong>${fr.total_declarations}</strong> federal declarations${perYear ? ` (≈${perYear}/yr)` : ""}. Top hazard: <strong>${fr.top_hazard || "—"}</strong>.${mostRecent ? ` Most recent: <strong>${mostRecent}</strong>.` : ""}`;
+        extra += `<div class="corr-narrative">${narrative}</div>`;
+        if (fr.hurricane_count != null) extra += kv("Hurricane declarations", `<strong>${fr.hurricane_count}</strong>`);
+        if (fr.flood_count != null) extra += kv("Flood declarations", `<strong>${fr.flood_count}</strong>`);
       }
       el.innerHTML = extra;
     }).catch(() => {});
@@ -1908,7 +2002,7 @@ if (localStorage.getItem("darkMode") === "1") {
 function reinitMapLayers() {
   // Re-add all custom sources and layers after basemap change
   if (!map.getSource("parcels-source")) {
-    map.addSource("parcels-source", { type: "vector", tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt"], minzoom: 11, maxzoom: 16 });
+    map.addSource("parcels-source", { type: "vector", tiles: ["https://tiles.jbf.com/florida-parcels/{z}/{x}/{y}.mvt?v=2026-04-19"], minzoom: 11, maxzoom: 16 });
     map.addLayer({ id: "parcels-fill", type: "fill", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "fill-color": ["match", ["get", "v"], 0, "rgba(77,187,219,0.85)", 1, "rgba(143,212,164,0.85)", 2, "rgba(200,230,160,0.85)", 3, "rgba(245,213,110,0.85)", 4, "rgba(240,146,74,0.85)", 5, "rgba(224,59,46,0.85)", "rgba(200,200,200,0.85)"], "fill-opacity": 0.85 } });
     map.addLayer({ id: "parcels-outline", type: "line", source: "parcels-source", "source-layer": "parcels", minzoom: 12, layout: { visibility: _parcelVisible ? "visible" : "none" }, paint: { "line-color": "rgba(30,30,30,0.6)", "line-width": 0.5 } });
   }
