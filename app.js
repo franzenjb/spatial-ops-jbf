@@ -1941,7 +1941,9 @@ function buildTractPopupHTML(geoid, bbox) {
   // Async ALICE + FEMA + Parcels fetch
   const countyFips = geoid.slice(0, 5);
   const asyncId = "tract-async-" + Date.now();
-  html += `<div id="${asyncId}"></div>`;
+  html += `<div id="${asyncId}"><div class="tp-caption" style="text-align:left;margin:10px 0 0">
+    <span class="analyzing-dots">Loading county context <span>·</span><span>·</span><span>·</span></span>
+  </div></div>`;
   const parcelPromise = bbox
     ? fetch(`${PARCEL_API}/api/stats?xmin=${bbox.xmin}&ymin=${bbox.ymin}&xmax=${bbox.xmax}&ymax=${bbox.ymax}`).then(r => r.ok ? r.json() : null).catch(() => null)
     : Promise.resolve(null);
@@ -2036,8 +2038,13 @@ function buildTractPopupHTML(geoid, bbox) {
         }
       }
 
+      if (!extra) {
+        extra = `<div class="tp-caption" style="text-align:left;margin:10px 0 0">No county-level ALICE, FEMA, or parcel data for this tract.</div>`;
+      }
       el.innerHTML = extra;
-    }).catch(() => {});
+    }).catch(() => {
+      el.innerHTML = `<div class="tp-caption" style="text-align:left;color:#c0392b;margin:10px 0 0">County data unavailable — check network or Supabase.</div>`;
+    });
   }, 0);
 
   return html || '<div style="color:#888;text-align:center;padding:16px 0">No data for this tract.</div>';
