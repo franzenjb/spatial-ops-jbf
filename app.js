@@ -1843,8 +1843,20 @@ function buildTractPopupHTML(geoid, bbox) {
     return `$${Math.round(n).toLocaleString()}`;
   };
 
-  function bar(label, val, isScore) {
-    const display = isScore ? Math.round(val) : Math.round(val * 100) + "%";
+  function bar(label, val, isScore, popForPct) {
+    if (val == null || isNaN(val)) return "";
+    let display;
+    if (isScore) {
+      display = Math.round(val);
+    } else {
+      const pct = Math.round(val * 100);
+      if (popForPct && popForPct > 0) {
+        const absolute = Math.round(val * popForPct);
+        display = `${pct}% · ${compactMoney(absolute).replace("$","")}`;
+      } else {
+        display = `${pct}%`;
+      }
+    }
     const fillPct = isScore ? val : val * 100;
     const color = isScore
       ? (val >= 80 ? "#e05070" : val >= 60 ? "#e07830" : val >= 40 ? "#d4b020" : val >= 20 ? "#78aa28" : "#6abf9e")
@@ -1878,10 +1890,11 @@ function buildTractPopupHTML(geoid, bbox) {
     if (svi.e_age65) html += kv("Age 65+", num(svi.e_age65));
     if (svi.e_disabl) html += kv("Disabled", num(svi.e_disabl));
     html += `<div class="tp-section">SVI Sub-Themes</div>`;
-    html += bar("Socioeconomic Status", svi.rpl_theme1, false);
-    html += bar("Household Characteristics", svi.rpl_theme2, false);
-    html += bar("Racial & Ethnic Minority", svi.rpl_theme3, false);
-    html += bar("Housing & Transportation", svi.rpl_theme4, false);
+    const tractPop = svi.e_totpop || 0;
+    html += bar("Socioeconomic Status", svi.rpl_theme1, false, tractPop);
+    html += bar("Household Characteristics", svi.rpl_theme2, false, tractPop);
+    html += bar("Racial & Ethnic Minority", svi.rpl_theme3, false, tractPop);
+    html += bar("Housing & Transportation", svi.rpl_theme4, false, tractPop);
   }
 
   if (nri) {
@@ -1907,37 +1920,93 @@ function buildTractPopupHTML(geoid, bbox) {
     Promise.all([
       sbFetch("alice", "select=*&fips_5=eq." + countyFips),
       sbFetch("fema_declarations", "select=*&fips_5=eq." + countyFips),
+      sbFetch("county_rankings", "select=county_fips,population&county_fips=eq." + countyFips),
       parcelPromise,
-    ]).then(([a, f, p]) => {
+    ]).then(([a, f, cr, p]) => {
       const el = document.getElementById(asyncId);
       if (!el) return;
+      const countyPop = cr?.[0]?.population || 0;
       let extra = "";
-      if (p && p.total_parcels > 0) {
-        extra += `<div class="tp-section">Property Data (Florida Parcels)</div>`;
-        extra += kv("Total parcels", `<strong>${num(p.total_parcels)}</strong>`);
-        if (p.residential != null) extra += kv("Residential", num(p.residential));
-        if (p.avg_assessed != null) extra += kv("Avg assessed value", `<strong>${compactMoney(p.avg_assessed)}</strong>`);
-        if (p.median_assessed != null) extra += kv("Median assessed", compactMoney(p.median_assessed));
-        if (p.total_assessed != null) extra += kv("Total assessed value", `<strong>${compactMoney(p.total_assessed)}</strong>`);
-        if (p.avg_year_built) extra += kv("Avg year built", Math.round(p.avg_year_built));
-        if (p.over_500k != null) extra += kv("Over $500K", num(p.over_500k));
-        if (p.over_1m != null) extra += kv("Over $1M", num(p.over_1m));
-      }
+
+      // Economic Hardship — compact card
       if (a?.[0]) {
-        extra += `<div class="tp-section">Economic Hardship (ALICE)</div>`;
-        extra += kv("Struggling (ALICE + poverty)", `<strong>${Math.round(a[0].pct_struggling)}%</strong>`);
-        extra += kv("Median household income", `<strong>$${num(a[0].median_income)}</strong>`);
+        const ar = a[0];
+        const pct = ar.pct_struggling || 0;
+        const struggling = countyPop > 0 ? Math.round(countyPop * (pct / 100)) : null;
+        const name = ar.county_name || `County ${countyFips}`;
+        const color = pct >= 35 ? "#e05070" : pct >= 25 ? "#e07830" : pct >= 15 ? "#a16207" : "#78aa28";
+        const statsParts = [];
+        if (struggling != null) statsParts.push(`<span><strong>${compactMoney(struggling).replace("$","")}</strong> struggling</span>`);
+        if (countyPop > 0) statsParts.push(`<span>of <strong>${compactMoney(countyPop).replace("$","")}</strong> residents</span>`);
+        if (ar.median_income) statsParts.push(`<span>median <strong>$${num(ar.median_income)}</strong></span>`);
+        extra += `<div class="tp-section">Economic Hardship (ALICE)</div>
+          <div class="cc-card">
+            <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:${color}">${Math.round(pct)}%</span></div>
+            <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${Math.min(pct, 100)}%;background:${color}"></div></div>
+            <div class="cc-stats">${statsParts.join('<span class="sep">·</span>')}</div>
+          </div>`;
       }
+
+      // FEMA — compact card
       if (f?.[0]) {
         const fr = f[0];
-        const mostRecent = (fr.most_recent_title || "").trim();
-        const perYear = fr.declarations_per_year != null ? Number(fr.declarations_per_year).toFixed(1) : null;
-        extra += `<div class="tp-section">FEMA Disaster History</div>`;
-        const narrative = `<strong>${fr.total_declarations}</strong> federal declarations${perYear ? ` (≈${perYear}/yr)` : ""}. Top hazard: <strong>${fr.top_hazard || "—"}</strong>.${mostRecent ? ` Most recent: <strong>${mostRecent}</strong>.` : ""}`;
-        extra += `<div class="corr-narrative">${narrative}</div>`;
-        if (fr.hurricane_count != null) extra += kv("Hurricane declarations", `<strong>${fr.hurricane_count}</strong>`);
-        if (fr.flood_count != null) extra += kv("Flood declarations", `<strong>${fr.flood_count}</strong>`);
+        const name = fr.county_name || `County ${countyFips}`;
+        const last = (fr.most_recent_title || "").trim();
+        const decl = fr.total_declarations || 0;
+        const dpy = fr.declarations_per_year != null ? Number(fr.declarations_per_year).toFixed(1) : null;
+        const hazard = fr.top_hazard || "Hurricane";
+        const hurr = fr.hurricane_count || 0;
+        const flood = fr.flood_count || 0;
+        const statsParts = [];
+        if (dpy) statsParts.push(`<span>≈${dpy}/yr</span>`);
+        statsParts.push(`<span>Top: <strong>${hazard}</strong></span>`);
+        statsParts.push(`<span><strong>${hurr}</strong> hurricane</span>`);
+        statsParts.push(`<span><strong>${flood}</strong> flood</span>`);
+        extra += `<div class="tp-section">FEMA Disaster History</div>
+          <div class="cc-card">
+            <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:#a51c30">${decl}</span></div>
+            <div class="cc-stats">${statsParts.join('<span class="sep">·</span>')}</div>
+            ${last ? `<div class="cc-recent">Most recent: <strong>${last}</strong></div>` : ""}
+          </div>`;
       }
+
+      // Property Data — grouped sub-sections
+      if (p && p.total_parcels > 0) {
+        extra += `<div class="tp-section">Property Data (Florida Parcels)</div>`;
+        const totalVal = p.total_assessed != null ? compactMoney(p.total_assessed) : null;
+        const avgVal = p.avg_assessed != null ? compactMoney(p.avg_assessed) : null;
+        if (totalVal && avgVal) {
+          extra += `<div class="corr-narrative"><strong>${num(p.total_parcels)}</strong> parcels totaling <strong>${totalVal}</strong> in assessed value (avg <strong>${avgVal}</strong>).</div>`;
+        }
+        if (p.residential != null || p.commercial != null) {
+          extra += `<div class="tp-subhead">Composition</div>`;
+          if (p.residential != null) extra += kv("Residential", num(p.residential));
+          if (p.commercial != null) extra += kv("Commercial / other", num(p.commercial));
+        }
+        if (avgVal || p.median_assessed != null || totalVal) {
+          extra += `<div class="tp-subhead">Valuation</div>`;
+          if (avgVal) extra += kv("Average", `<strong>${avgVal}</strong>`);
+          if (p.median_assessed != null) extra += kv("Median", compactMoney(p.median_assessed));
+          if (totalVal) extra += kv("Total", `<strong>${totalVal}</strong>`);
+        }
+        if (p.avg_year_built || p.pre_1970 != null || p.post_2000 != null) {
+          extra += `<div class="tp-subhead">Age</div>`;
+          if (p.avg_year_built) extra += kv("Avg year built", Math.round(p.avg_year_built));
+          if (p.pre_1970 != null) extra += kv("Pre-1970", num(p.pre_1970));
+          if (p.post_2000 != null) extra += kv("Post-2000", num(p.post_2000));
+        }
+        if (p.avg_sqft != null || p.total_acres != null) {
+          extra += `<div class="tp-subhead">Scale</div>`;
+          if (p.avg_sqft != null) extra += kv("Avg sq ft", num(p.avg_sqft));
+          if (p.total_acres != null) extra += kv("Total acres", Math.round(p.total_acres).toLocaleString());
+        }
+        if (p.over_500k != null || p.over_1m != null) {
+          extra += `<div class="tp-subhead">Luxury</div>`;
+          if (p.over_500k != null) extra += kv("Over $500K", num(p.over_500k));
+          if (p.over_1m != null) extra += kv("Over $1M", num(p.over_1m));
+        }
+      }
+
       el.innerHTML = extra;
     }).catch(() => {});
   }, 0);
