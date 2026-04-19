@@ -39,20 +39,24 @@ test('dark mode toggles cleanly and panel is readable', async ({ page }) => {
         <div class="tp-hero-tract">Radius view · 12 tracts · 1 county</div>
       </div>
       <div class="tp-caption">All data reflects tracts, parcels, and records within or touching the analysis area</div>
-      <div class="tp-section">Social Vulnerability (SVI)</div>
-      <div class="tp-caption" style="text-align:left;margin:-2px 0 6px">Percentile rank vs. all US tracts · 12 tracts · 94,218 residents in scope</div>
-      <div class="tp-bar-row"><div class="tp-bar-head"><span>Overall vulnerability</span><span>60%</span></div>
-        <div class="tp-bar-track"><div class="tp-bar-fill" style="width:60%;background:#e07830"></div></div></div>
-      <div class="tp-section">Economic Hardship (ALICE)</div>
-      <div class="cc-card">
-        <div class="cc-head"><span class="cc-name">Hillsborough County</span><span class="cc-lead" style="color:#e05070">42%</span></div>
-        <div class="cc-bar-track"><div class="cc-bar-fill" style="width:42%;background:#e05070"></div></div>
-        <div class="cc-stats">
-          <span><strong>620K</strong> struggling</span><span class="sep">·</span>
-          <span>of <strong>1.5M</strong> residents</span><span class="sep">·</span>
-          <span>median <strong>$58,000</strong></span>
+      <details open class="tp-acc">
+        <summary class="tp-section">Social Vulnerability (SVI)</summary>
+        <div class="tp-caption" style="text-align:left;margin:-2px 0 6px">Percentile rank vs. all US tracts · 12 tracts · 94,218 residents in scope</div>
+        <div class="tp-bar-row"><div class="tp-bar-head"><span>Overall vulnerability</span><span>60%</span></div>
+          <div class="tp-bar-track"><div class="tp-bar-fill" style="width:60%;background:#e07830"></div></div></div>
+      </details>
+      <details open class="tp-acc">
+        <summary class="tp-section">Economic Hardship (ALICE)</summary>
+        <div class="cc-card">
+          <div class="cc-head"><span class="cc-name">Hillsborough County</span><span class="cc-lead" style="color:#e05070">42%</span></div>
+          <div class="cc-bar-track"><div class="cc-bar-fill" style="width:42%;background:#e05070"></div></div>
+          <div class="cc-stats">
+            <span><strong>620K</strong> struggling</span><span class="sep">·</span>
+            <span>of <strong>1.5M</strong> residents</span><span class="sep">·</span>
+            <span>median <strong>$58,000</strong></span>
+          </div>
         </div>
-      </div>`;
+      </details>`;
     const el = document.getElementById('corridor-results');
     if (el) el.innerHTML = mockHtml;
     const acc = document.getElementById('acc-corridor-results');
@@ -71,6 +75,20 @@ test('dark mode toggles cleanly and panel is readable', async ({ page }) => {
   });
   // cream is rgb(250, 247, 245) — dark-mode is rgba(255,255,255,0.04) ~ mostly-dark
   expect(cardBg).not.toBe('rgb(250, 247, 245)');
+
+  // Verify accordion pattern: 2+ <details class="tp-acc">, all start open
+  const accordionState = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('details.tp-acc')];
+    return { total: all.length, open: all.filter(d => d.open).length };
+  });
+  expect(accordionState.total).toBeGreaterThanOrEqual(2);
+  expect(accordionState.open).toBe(accordionState.total);
+
+  // Click first summary — corresponding <details> should collapse
+  await page.evaluate(() => document.querySelector('details.tp-acc > summary').click());
+  await page.waitForTimeout(150);
+  const firstOpenAfterClick = await page.evaluate(() => document.querySelector('details.tp-acc').open);
+  expect(firstOpenAfterClick).toBe(false);
 
   // Capture for manual review
   await page.screenshot({ path: '/tmp/ops-dark-mode.png', fullPage: false });

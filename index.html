@@ -611,6 +611,19 @@
     body.dark .cc-stats strong { color: #ccdaeb; }
     body.dark .cc-stats .sep { color: #445566; }
     body.dark .cc-recent { color: #8899aa; }
+    /* Collapsible section accordions inside corridor results + tract popup */
+    .tp-acc { margin: 0; }
+    .tp-acc > summary { cursor: pointer; list-style: none; position: relative; padding-right: 20px; user-select: none; outline: none; }
+    .tp-acc > summary::-webkit-details-marker { display: none; }
+    .tp-acc > summary::after {
+      content: "\25BE"; position: absolute; right: 2px; top: 50%;
+      transform: translateY(-10%) rotate(-90deg); transition: transform .15s ease;
+      font-size: 11px; opacity: .55; color: #a51c30; line-height: 1;
+    }
+    .tp-acc[open] > summary::after { transform: translateY(-30%) rotate(0deg); }
+    .tp-acc > summary:hover::after { opacity: 0.95; }
+    .tp-acc > summary:focus-visible { box-shadow: 0 0 0 2px rgba(165,28,48,0.25); border-radius: 2px; }
+    body.dark .tp-acc > summary::after { color: #ed1b2e; opacity: .7; }
     .analyzing-dots span { animation: analyze-pulse 1.2s infinite; opacity: 0.3; margin: 0 1px; }
     .analyzing-dots span:nth-child(2) { animation-delay: 0.2s; }
     .analyzing-dots span:nth-child(3) { animation-delay: 0.4s; }
