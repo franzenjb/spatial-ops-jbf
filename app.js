@@ -1507,10 +1507,9 @@ function toggleAccordion(id, forceOpen) {
   if (!section) return;
   const header = section.querySelector(".acc-header");
   const body   = section.querySelector(".acc-body");
-  const arrow  = section.querySelector(".acc-arrow");
   const willOpen = (forceOpen !== undefined) ? forceOpen : body.classList.contains("closed");
   body.classList.toggle("closed", !willOpen);
-  arrow.textContent = willOpen ? "▼" : "▶";
+  // Chevron rotates via CSS on .acc-header.is-open — no character swap needed
   header.classList.toggle("is-open", willOpen);
 }
 window.toggleAccordion = toggleAccordion;

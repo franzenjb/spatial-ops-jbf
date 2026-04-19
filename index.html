@@ -210,6 +210,20 @@
       animation: corridorPulse 1s infinite;
     }
     .panel-tab.drawing .tab-indicator { display: block; }
+    .panel-tab .tab-beta {
+      display: inline-block;
+      margin-left: 5px;
+      padding: 1px 5px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: rgba(255,255,255,0.22);
+      color: #fff;
+      border-radius: 7px;
+      vertical-align: middle;
+      line-height: 1.3;
+    }
+    .panel-tab.active .tab-beta { background: rgba(255,255,255,0.35); }
     #panel-close {
       background: none;
       border: none;
@@ -334,15 +348,25 @@
     /* ── Layers panel accordion ─────────────────────────────── */
     .layers-acc { border-bottom: 1px solid var(--border-color, #ddd); }
     .layers-acc-header {
-      display: flex; align-items: center; gap: 6px;
-      padding: 10px 0; cursor: pointer; font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; gap: 7px;
+      padding: 10px 6px; margin: 0 -6px; cursor: pointer; font-size: 13px; font-weight: 600;
       color: var(--text-primary, #333); user-select: none;
+      border-radius: 3px; transition: background 0.15s, color 0.15s;
     }
-    .layers-acc-header:hover { color: var(--accent, #a51c30); }
-    .layers-acc-arrow { font-size: 11px; transition: transform 0.2s; }
+    .layers-acc-header:hover { background: rgba(165,28,48,0.08); color: #a51c30; }
+    .layers-acc-arrow {
+      font-size: 11px; line-height: 1; color: #a51c30;
+      transition: transform 0.2s; flex-shrink: 0; width: 10px; text-align: center;
+    }
+    .layers-acc.open .layers-acc-header { color: #a51c30; }
     .layers-acc.open .layers-acc-arrow { transform: rotate(90deg); }
-    .layers-acc-body { display: none; padding: 0 0 10px 18px; }
+    .layers-acc-body { display: none; padding: 2px 0 10px 18px; }
     .layers-acc.open .layers-acc-body { display: block; }
+    body.dark .layers-acc { border-bottom-color: rgba(255,255,255,0.08); }
+    body.dark .layers-acc-header { color: #ccdaeb; }
+    body.dark .layers-acc-header:hover { background: rgba(237,27,46,0.14); color: #ff5a6e; }
+    body.dark .layers-acc-arrow { color: #ed1b2e; }
+    body.dark .layers-acc.open .layers-acc-header { color: #ff5a6e; }
 
     /* noUiSlider theme overrides */
     .noUi-target { background: #ddd; border: none; box-shadow: none; height: 6px; border-radius: 3px; }
@@ -468,16 +492,21 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.8px;
-      color: #999;
+      color: #666;
       cursor: pointer;
       background: #faf7f5;
       user-select: none;
       transition: background 0.15s, color 0.15s;
       border-bottom: 1px solid #e8e2dc;
     }
-    .acc-header:hover { background: var(--bg-section); color: var(--text-secondary); }
+    .acc-header:hover { background: rgba(165,28,48,0.08); color: #a51c30; }
     .acc-header.is-open { color: #a51c30; background: #fff; }
-    .acc-arrow { font-size: 9px; flex-shrink: 0; line-height: 1; }
+    .acc-arrow {
+      font-size: 9px; flex-shrink: 0; line-height: 1;
+      color: #a51c30; width: 10px; text-align: center;
+      transition: transform 0.2s;
+    }
+    .acc-header.is-open .acc-arrow { transform: rotate(90deg); }
     .acc-label { flex: 1; }
     .acc-body {
       overflow: hidden;
@@ -611,19 +640,41 @@
     body.dark .cc-stats strong { color: #ccdaeb; }
     body.dark .cc-stats .sep { color: #445566; }
     body.dark .cc-recent { color: #8899aa; }
-    /* Collapsible section accordions inside corridor results + tract popup */
+    /* Collapsible section accordions inside corridor results + tract popup.
+       Matches the Layers panel pattern: chevron on the LEFT, rotates on open,
+       whole summary row tints on hover so the affordance is obvious. */
     .tp-acc { margin: 0; }
-    .tp-acc > summary { cursor: pointer; list-style: none; position: relative; padding-right: 20px; user-select: none; outline: none; }
-    .tp-acc > summary::-webkit-details-marker { display: none; }
-    .tp-acc > summary::after {
-      content: "\25BE"; position: absolute; right: 2px; top: 50%;
-      transform: translateY(-10%) rotate(-90deg); transition: transform .15s ease;
-      font-size: 11px; opacity: .55; color: #a51c30; line-height: 1;
+    .tp-acc > summary {
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding-left: 4px;
+      padding-right: 4px;
+      outline: none;
+      border-radius: 3px;
+      transition: background 0.15s;
     }
-    .tp-acc[open] > summary::after { transform: translateY(-30%) rotate(0deg); }
-    .tp-acc > summary:hover::after { opacity: 0.95; }
-    .tp-acc > summary:focus-visible { box-shadow: 0 0 0 2px rgba(165,28,48,0.25); border-radius: 2px; }
-    body.dark .tp-acc > summary::after { color: #ed1b2e; opacity: .7; }
+    .tp-acc > summary::-webkit-details-marker { display: none; }
+    .tp-acc > summary::before {
+      content: "\25B6"; /* ▶ closed */
+      font-size: 9px;
+      line-height: 1;
+      color: #a51c30;
+      opacity: 1;
+      transition: transform .15s ease;
+      flex-shrink: 0;
+      width: 10px;
+      text-align: center;
+    }
+    .tp-acc[open] > summary::before { transform: rotate(90deg); }
+    .tp-acc > summary:hover { background: rgba(165,28,48,0.08); }
+    .tp-acc > summary:focus-visible { box-shadow: 0 0 0 2px rgba(165,28,48,0.25); }
+    .tp-acc:not([open]) > summary { margin-bottom: 2px; } /* tighten collapsed sections */
+    body.dark .tp-acc > summary::before { color: #ed1b2e; }
+    body.dark .tp-acc > summary:hover { background: rgba(237,27,46,0.14); }
     .analyzing-dots span { animation: analyze-pulse 1.2s infinite; opacity: 0.3; margin: 0 1px; }
     .analyzing-dots span:nth-child(2) { animation-delay: 0.2s; }
     .analyzing-dots span:nth-child(3) { animation-delay: 0.4s; }
@@ -632,9 +683,10 @@
     /* ── Dark mode overrides ──────────────────────────────── */
     body.dark .ctx-section { border-bottom-color: rgba(255,255,255,0.06); background: #1a1e26; }
     body.dark .ctx-section-title { color: var(--text-muted); }
-    body.dark .acc-header { color: var(--text-muted); background: #1a1e26; border-bottom-color: rgba(255,255,255,0.06); }
-    body.dark .acc-header:hover { background: rgba(255,255,255,0.04); }
-    body.dark .acc-header.is-open { color: #a51c30; background: #1a1e26; }
+    body.dark .acc-header { color: #ccdaeb; background: #1a1e26; border-bottom-color: rgba(255,255,255,0.08); }
+    body.dark .acc-header:hover { background: rgba(237,27,46,0.14); color: #ff5a6e; }
+    body.dark .acc-header.is-open { color: #ff5a6e; background: rgba(237,27,46,0.08); }
+    body.dark .acc-arrow { color: #ed1b2e; }
     body.dark .acc-body { color: #b0bac6; background: #1a1e26; }
     body.dark #acc-corridor-results.active > .acc-header { background: rgba(237,27,46,0.12); }
     body.dark #corridor-results { background: #1a1e26; }
@@ -770,8 +822,8 @@
     <!-- Tab bar -->
     <div id="panel-tabs">
       <button class="panel-tab active" data-tab="layers" onclick="switchTab('layers')">Layers</button>
-      <button class="panel-tab" data-tab="query" onclick="switchTab('query')">Query</button>
       <button class="panel-tab" data-tab="corridor" onclick="switchTab('corridor')">Analyze<span class="tab-indicator"></span></button>
+      <button class="panel-tab" data-tab="query" onclick="switchTab('query')">Query<span class="tab-beta">Beta</span></button>
       <button id="panel-close" onclick="closePanel()">✕</button>
     </div>
 
