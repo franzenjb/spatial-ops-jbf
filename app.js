@@ -527,21 +527,6 @@ async function fetchTIGERwebTracts(statusEl) {
   return _tractPromise;
 }
 async function _fetchTIGERwebTractsInner(statusEl) {
-
-  // Try local cache first
-  try {
-    const cacheResp = await fetch(`data/tracts_${_currentStateFips}.geojson`);
-    if (cacheResp.ok) {
-      const cached = await cacheResp.json();
-      const feats = cached.features || [];
-      if (feats.length > 0) {
-        _tractFeatures = feats;
-        if (statusEl) statusEl.textContent = `${feats.length} tracts (cached)`;
-        return feats;
-      }
-    }
-  } catch { /* cache miss */ }
-
   if (statusEl) statusEl.textContent = "Loading tracts from TIGERweb…";
 
   const BASE = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query";
