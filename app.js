@@ -658,7 +658,7 @@ document.getElementById("svi-toggle").addEventListener("click", () => {
   map.setLayoutProperty("svi-fill", "visibility", newVis);
   btn.textContent = newVis === "visible" ? "ON" : "OFF";
   btn.classList.toggle("active", newVis === "visible");
-  syncFilterSliders();
+  applyFilters();
 });
 
 document.getElementById("nri-toggle").addEventListener("click", () => {
@@ -668,7 +668,7 @@ document.getElementById("nri-toggle").addEventListener("click", () => {
   map.setLayoutProperty("nri-fill", "visibility", newVis);
   btn.textContent = newVis === "visible" ? "ON" : "OFF";
   btn.classList.toggle("active", newVis === "visible");
-  syncFilterSliders();
+  applyFilters();
 });
 
 document.getElementById("nri-hazard").addEventListener("change", () => {
@@ -849,17 +849,8 @@ function applyParcelFilters() {
 }
 
 // ── Filter sliders (SVI/NRI) ────────────────────────────────────────────────
-function syncFilterSliders() {
-  const sviVis = map.getLayoutProperty("svi-fill", "visibility") === "visible";
-  const nriVis = map.getLayoutProperty("nri-fill", "visibility") === "visible";
-  document.getElementById("filter-sliders").style.display = (sviVis || nriVis) ? "block" : "none";
-
-  // Sync combined button
-  const cBtn = document.getElementById("tb-combined");
-  if (sviVis && nriVis) { cBtn.classList.add("active"); cBtn.textContent = "SVI + NRI: ON"; }
-  else { cBtn.classList.remove("active"); cBtn.textContent = "Show SVI + NRI Combined"; }
-}
-
+// Each slider lives inside its layer's accordion; the analyze button shows
+// in its own wrapper whenever either filter is non-zero.
 function applyFilters() {
   const sviMin = parseInt(document.getElementById("svi-filter").value) / 100;
   const nriMin = parseInt(document.getElementById("nri-filter").value);
@@ -875,12 +866,12 @@ function applyFilters() {
     map.setFilter("nri-fill", nriMin > 0 ? [">=", ["get", scoreField], nriMin] : null);
   }
 
-  const analyzeBtn = document.getElementById("filter-analyze-btn");
+  const actionWrap = document.getElementById("filter-action-wrap");
   const resultsDiv = document.getElementById("filter-analysis-results");
   if (sviMin > 0 || nriMin > 0) {
-    analyzeBtn.style.display = "block";
+    actionWrap.style.display = "block";
   } else {
-    analyzeBtn.style.display = "none";
+    actionWrap.style.display = "none";
     resultsDiv.style.display = "none";
   }
 }
@@ -893,26 +884,6 @@ document.getElementById("nri-filter").addEventListener("input", (e) => {
   document.getElementById("nri-filter-val").textContent = parseInt(e.target.value);
   applyFilters();
 });
-
-// ── Combined layer toggle ───────────────────────────────────────────────────
-function toggleCombinedLayer() {
-  const btn = document.getElementById("tb-combined");
-  const isOn = btn.classList.contains("active");
-  const newVis = isOn ? "none" : "visible";
-  map.setLayoutProperty("svi-fill", "visibility", newVis);
-  map.setLayoutProperty("nri-fill", "visibility", newVis);
-  if (isOn) {
-    btn.classList.remove("active"); btn.textContent = "Show SVI + NRI Combined";
-  } else {
-    btn.classList.add("active"); btn.textContent = "SVI + NRI: ON";
-  }
-  document.getElementById("svi-toggle").textContent = newVis === "visible" ? "ON" : "OFF";
-  document.getElementById("svi-toggle").classList.toggle("active", newVis === "visible");
-  document.getElementById("nri-toggle").textContent = newVis === "visible" ? "ON" : "OFF";
-  document.getElementById("nri-toggle").classList.toggle("active", newVis === "visible");
-  syncFilterSliders();
-}
-window.toggleCombinedLayer = toggleCombinedLayer;
 
 // ── FAB layer toggles ───────────────────────────────────────────────────────
 window.toggleMapLayer = (type) => {
@@ -2157,7 +2128,8 @@ function resetMap() {
   document.getElementById("nri-filter").value = 0;
   document.getElementById("svi-filter-val").textContent = "0.00";
   document.getElementById("nri-filter-val").textContent = "0";
-  document.getElementById("filter-sliders").style.display = "none";
+  document.getElementById("filter-action-wrap").style.display = "none";
+  document.getElementById("filter-analysis-results").style.display = "none";
 
   // Reset KPI
   if (window._data) {

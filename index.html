@@ -390,7 +390,6 @@
     }
     .layer-toggle-btn.active { background: #2c3e50; color: #fff; border-color: #2c3e50; }
     #nri-toggle.active { background: #6c3483; border-color: #6c3483; }
-    #tb-combined.active { background: #a51c30; border-color: #a51c30; color: #fff; }
 
     /* ── Legend ───────────────────────────────────────────── */
     .legend-block {
@@ -852,6 +851,14 @@
               <div class="legend-item"><div class="legend-square" style="background:#f9e79f;border:1px solid #ccc;"></div>0.00–0.25 Low</div>
               <div class="legend-item"><div class="legend-square" style="background:#cccccc"></div>No data</div>
             </div>
+            <div style="margin-top:10px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <label style="font-size:11px;color:var(--text-secondary)">Min SVI Percentile</label>
+                <span id="svi-filter-val" style="font-size:11px;font-weight:700;color:#c0392b">0.00</span>
+              </div>
+              <input type="range" id="svi-filter" min="0" max="100" value="0" style="width:100%;accent-color:#c0392b;cursor:pointer">
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>Show all</span><span>High only</span></div>
+            </div>
           </div>
         </div>
 
@@ -883,22 +890,7 @@
               <div class="legend-item"><div class="legend-square" style="background:#f1c40f"></div>20–40 Low</div>
               <div class="legend-item"><div class="legend-square" style="background:#ecf0f1;border:1px solid #ccc;"></div>0–20 Very Low</div>
             </div>
-          </div>
-        </div>
-
-        <!-- Combined SVI+NRI -->
-        <div style="padding:8px 0;border-bottom:1px solid var(--border-color,#ddd)">
-          <button id="tb-combined" class="layer-toggle-btn" onclick="toggleCombinedLayer()" style="width:100%;padding:8px;font-size:13px;font-weight:700">Show SVI + NRI Combined</button>
-          <div id="filter-sliders" style="display:none;margin-top:10px">
-            <div style="margin-bottom:8px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                <label style="font-size:11px;color:var(--text-secondary)">Min SVI Percentile</label>
-                <span id="svi-filter-val" style="font-size:11px;font-weight:700;color:#c0392b">0.00</span>
-              </div>
-              <input type="range" id="svi-filter" min="0" max="100" value="0" style="width:100%;accent-color:#c0392b;cursor:pointer">
-              <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>Show all</span><span>High only</span></div>
-            </div>
-            <div>
+            <div style="margin-top:10px">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
                 <label style="font-size:11px;color:var(--text-secondary)">Min NRI Risk Score</label>
                 <span id="nri-filter-val" style="font-size:11px;font-weight:700;color:#7b2d8b">0</span>
@@ -906,10 +898,14 @@
               <input type="range" id="nri-filter" min="0" max="100" value="0" style="width:100%;accent-color:#7b2d8b;cursor:pointer">
               <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:1px"><span>Show all</span><span>High only</span></div>
             </div>
-            <div id="filter-count" style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center"></div>
-            <button id="filter-analyze-btn" style="display:none;width:100%;margin-top:8px;padding:8px;font-size:12px;font-weight:700;background:#C41E3A;color:#fff;border:none;border-radius:4px;cursor:pointer">Analyze Filtered Tracts (in view)</button>
-            <div id="filter-analysis-results" style="display:none;margin-top:8px;font-size:12px;line-height:1.8"></div>
           </div>
+        </div>
+
+        <!-- Analyze filtered tracts (active only when either SVI or NRI filter is non-zero) -->
+        <div id="filter-action-wrap" style="display:none;padding:8px 0;border-bottom:1px solid var(--border-color,#ddd)">
+          <div id="filter-count" style="font-size:11px;color:var(--text-muted);margin-bottom:6px;text-align:center"></div>
+          <button id="filter-analyze-btn" style="width:100%;padding:8px;font-size:12px;font-weight:700;background:#C41E3A;color:#fff;border:none;border-radius:4px;cursor:pointer">Analyze Filtered Tracts (in view)</button>
+          <div id="filter-analysis-results" style="display:none;margin-top:8px;font-size:12px;line-height:1.8"></div>
         </div>
 
         <!-- Parcels (Florida) -->
