@@ -64,7 +64,7 @@ Tables (ONLY these columns exist — do NOT use any column not listed here):
 - svi: fips (11-digit tract FIPS), st_abbr, county (includes "County" suffix), location, area_sqmi, rpl_themes (0–1, higher=worse), rpl_theme1 (socioeconomic), rpl_theme2 (household composition), rpl_theme3 (racial/ethnic minority), rpl_theme4 (housing/transport), e_totpop, e_hu, e_hh, e_pov150, e_unemp, e_hburd, e_nohsdp, e_uninsur, e_age65, e_age17, e_disabl, e_sngpnt, e_limeng, e_minrty, e_munit, e_mobile, e_crowd, e_noveh, e_groupq, e_daypop, e_noint, e_afam, e_hisp, e_asian, e_aian, e_nhpi, e_twomore, e_otherrace. Also has ep_* percentage versions.
 - nri: tractfips, stateabbrv, county, risk_score, risk_ratng, hrcn_risks, cfld_risks, ifld_risks, trnd_risks, wfir_risks, hwav_risks, resl_score, eal_score, eal_valt
 - alice: fips_5, state_fips, county_name, median_income, pct_poverty, pct_alice, pct_struggling, lat, lon
-- fema_declarations: fips_5, state_fips, county_name, total_declarations, most_recent_title, hurricane_count, flood_count, top_hazard, declarations_per_year, lat, lon
+- fema_declarations: fips_5, state_fips, total_declarations, first_declaration_year, most_recent_year, most_recent_title, declarations_per_year, top_hazard, hurricane_count, flood_count, severe_storm_count, lat, lon (NOTE: no county_name column — join on fips_5 to county_rankings.county_name or alice.county_name)
 
 IMPORTANT: Always filter by the current state unless the user explicitly asks about all states or a different state.
 - For home_fires/shelters/dat_volunteers: use {"state_abbr": "${st.abbr}"}
@@ -274,10 +274,10 @@ map.on("load", async () => {
     layout: { visibility: "none" },
     paint: {
       "fill-color": ["case",
-        [">=", ["get", "rpl"], 0.75], "rgba(192,57,43,0.65)",
-        [">=", ["get", "rpl"], 0.50], "rgba(231,76,60,0.65)",
-        [">=", ["get", "rpl"], 0.25], "rgba(243,156,18,0.65)",
-        [">=", ["get", "rpl"], 0],    "rgba(249,231,159,0.65)",
+        [">=", ["to-number", ["get", "rpl"], -1], 0.75], "rgba(192,57,43,0.65)",
+        [">=", ["to-number", ["get", "rpl"], -1], 0.50], "rgba(231,76,60,0.65)",
+        [">=", ["to-number", ["get", "rpl"], -1], 0.25], "rgba(243,156,18,0.65)",
+        [">=", ["to-number", ["get", "rpl"], -1], 0],    "rgba(249,231,159,0.65)",
         "rgba(204,204,204,0.55)"
       ],
       "fill-outline-color": "rgba(80,80,80,0.25)",
@@ -293,10 +293,10 @@ map.on("load", async () => {
     layout: { visibility: "none" },
     paint: {
       "fill-color": ["case",
-        [">=", ["get", "score"], 80], "rgba(123,45,139,0.65)",
-        [">=", ["get", "score"], 60], "rgba(192,57,43,0.65)",
-        [">=", ["get", "score"], 40], "rgba(230,126,34,0.65)",
-        [">=", ["get", "score"], 20], "rgba(241,196,15,0.65)",
+        [">=", ["to-number", ["get", "score"], -1], 80], "rgba(123,45,139,0.65)",
+        [">=", ["to-number", ["get", "score"], -1], 60], "rgba(192,57,43,0.65)",
+        [">=", ["to-number", ["get", "score"], -1], 40], "rgba(230,126,34,0.65)",
+        [">=", ["to-number", ["get", "score"], -1], 20], "rgba(241,196,15,0.65)",
         "rgba(236,240,241,0.65)"
       ],
       "fill-outline-color": "rgba(80,80,80,0.25)",
@@ -691,10 +691,10 @@ document.getElementById("nri-hazard").addEventListener("change", () => {
   // Update the paint property to color by selected hazard field
   const scoreField = field === "risk_score" ? "score" : field;
   map.setPaintProperty("nri-fill", "fill-color", ["case",
-    [">=", ["get", scoreField], 80], "rgba(123,45,139,0.65)",
-    [">=", ["get", scoreField], 60], "rgba(192,57,43,0.65)",
-    [">=", ["get", scoreField], 40], "rgba(230,126,34,0.65)",
-    [">=", ["get", scoreField], 20], "rgba(241,196,15,0.65)",
+    [">=", ["to-number", ["get", scoreField], -1], 80], "rgba(123,45,139,0.65)",
+    [">=", ["to-number", ["get", scoreField], -1], 60], "rgba(192,57,43,0.65)",
+    [">=", ["to-number", ["get", scoreField], -1], 40], "rgba(230,126,34,0.65)",
+    [">=", ["to-number", ["get", scoreField], -1], 20], "rgba(241,196,15,0.65)",
     "rgba(236,240,241,0.65)"
   ]);
 });
@@ -1182,13 +1182,22 @@ async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, an
         sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
         sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
         sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
-        sbFetch("fema_declarations", `select=fips_5,county_name,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
-        sbFetch("county_rankings", `select=county_fips,population&county_fips=${countyFilter}`),
+        // fema_declarations has no county_name column — we enrich from county_rankings/alice below
+        sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
+        sbFetch("county_rankings", `select=county_fips,county_name,population&county_fips=${countyFilter}`),
       ]).then(([s, n, a, f, cr]) => {
-        sviRows = s; nriRows = n; femaRows = f;
-        // Enrich each ALICE row with county population so we can compute totals
-        const popByFips = Object.fromEntries((cr || []).map(r => [r.county_fips, r.population || 0]));
+        sviRows = s; nriRows = n;
+        // Build fips → { name, pop } map from county_rankings (fallback to alice for name)
+        const nameByFips = {};
+        const popByFips = {};
+        (cr || []).forEach(r => {
+          nameByFips[r.county_fips] = r.county_name;
+          popByFips[r.county_fips] = r.population || 0;
+        });
+        (a || []).forEach(r => { if (!nameByFips[r.fips_5] && r.county_name) nameByFips[r.fips_5] = r.county_name; });
+        // Enrich ALICE rows with population, FEMA rows with county_name
         aliceRows = (a || []).map(row => ({ ...row, population: popByFips[row.fips_5] || 0 }));
+        femaRows = (f || []).map(row => ({ ...row, county_name: nameByFips[row.fips_5] || null }));
       })
     );
     fetchPromises.push(analyzeParcelsByTracts(tractGeoids, bbox).then(r => { parcelStats = r; }));
@@ -1955,12 +1964,14 @@ function buildTractPopupHTML(geoid, bbox) {
     Promise.all([
       sbFetch("alice", "select=*&fips_5=eq." + countyFips),
       sbFetch("fema_declarations", "select=*&fips_5=eq." + countyFips),
-      sbFetch("county_rankings", "select=county_fips,population&county_fips=eq." + countyFips),
+      sbFetch("county_rankings", "select=county_fips,county_name,population&county_fips=eq." + countyFips),
       parcelPromise,
     ]).then(([a, f, cr, p]) => {
       const el = document.getElementById(asyncId);
       if (!el) return;
       const countyPop = cr?.[0]?.population || 0;
+      // fema_declarations has no county_name — resolve from county_rankings or alice
+      const resolvedCountyName = cr?.[0]?.county_name || a?.[0]?.county_name || null;
       let extra = "";
 
       // Economic Hardship — compact card
@@ -1985,7 +1996,7 @@ function buildTractPopupHTML(geoid, bbox) {
       // FEMA — compact card
       if (f?.[0]) {
         const fr = f[0];
-        const name = fr.county_name || `County ${countyFips}`;
+        const name = resolvedCountyName || `County ${countyFips}`;
         const last = (fr.most_recent_title || "").trim();
         const decl = fr.total_declarations || 0;
         const dpy = fr.declarations_per_year != null ? Number(fr.declarations_per_year).toFixed(1) : null;
@@ -2218,11 +2229,11 @@ function reinitMapLayers() {
   }
   if (!map.getSource("svi-tracts")) {
     map.addSource("svi-tracts", { type: "geojson", data: EMPTY_FC });
-    map.addLayer({ id: "svi-fill", type: "fill", source: "svi-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["get", "rpl"], 0.75], "rgba(192,57,43,0.65)", [">=", ["get", "rpl"], 0.50], "rgba(231,76,60,0.65)", [">=", ["get", "rpl"], 0.25], "rgba(243,156,18,0.65)", [">=", ["get", "rpl"], 0], "rgba(249,231,159,0.65)", "rgba(204,204,204,0.55)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
+    map.addLayer({ id: "svi-fill", type: "fill", source: "svi-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["to-number", ["get", "rpl"], -1], 0.75], "rgba(192,57,43,0.65)", [">=", ["to-number", ["get", "rpl"], -1], 0.50], "rgba(231,76,60,0.65)", [">=", ["to-number", ["get", "rpl"], -1], 0.25], "rgba(243,156,18,0.65)", [">=", ["to-number", ["get", "rpl"], -1], 0], "rgba(249,231,159,0.65)", "rgba(204,204,204,0.55)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
   }
   if (!map.getSource("nri-tracts")) {
     map.addSource("nri-tracts", { type: "geojson", data: EMPTY_FC });
-    map.addLayer({ id: "nri-fill", type: "fill", source: "nri-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["get", "score"], 80], "rgba(123,45,139,0.65)", [">=", ["get", "score"], 60], "rgba(192,57,43,0.65)", [">=", ["get", "score"], 40], "rgba(230,126,34,0.65)", [">=", ["get", "score"], 20], "rgba(241,196,15,0.65)", "rgba(236,240,241,0.65)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
+    map.addLayer({ id: "nri-fill", type: "fill", source: "nri-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["to-number", ["get", "score"], -1], 80], "rgba(123,45,139,0.65)", [">=", ["to-number", ["get", "score"], -1], 60], "rgba(192,57,43,0.65)", [">=", ["to-number", ["get", "score"], -1], 40], "rgba(230,126,34,0.65)", [">=", ["to-number", ["get", "score"], -1], 20], "rgba(241,196,15,0.65)", "rgba(236,240,241,0.65)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
   }
   if (!map.getSource("fires")) {
     map.addSource("fires", { type: "geojson", data: EMPTY_FC });
@@ -2334,7 +2345,7 @@ document.getElementById("filter-analyze-btn").addEventListener("click", async ()
       sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
       sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
       sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
-      sbFetch("fema_declarations", `select=fips_5,county_name,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
+      sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
     ]);
 
     const fmt = n => Number(n).toLocaleString();
