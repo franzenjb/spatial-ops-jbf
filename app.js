@@ -180,6 +180,8 @@ var _parcelFilter = "all"; // legacy — replaced by _parcelTypeFilter + _active
 var _parcelVisible = false;
 var _tractLayerVisible = false;
 var _analysisTracts = [];  // tract features matching current analysis
+var _corridorData = { type: "FeatureCollection", features: [] };
+var _parcelMaskData = { type: "FeatureCollection", features: [] };
 var _radiusClickHandler = null;
 
 // Populate state dropdown
@@ -1037,6 +1039,7 @@ function distToSegment(px, py, ax, ay, bx, by) {
 
 function setParcelMask(bufferFeature) {
   if (!bufferFeature) {
+    _parcelMaskData = EMPTY_FC;
     map.getSource("parcel-mask").setData(EMPTY_FC);
     map.setLayoutProperty("parcel-mask-fill", "visibility", "none");
     return;
@@ -1052,6 +1055,7 @@ function setParcelMask(bufferFeature) {
       properties: {},
     }],
   };
+  _parcelMaskData = mask;
   map.getSource("parcel-mask").setData(mask);
   if (_parcelVisible) {
     map.setLayoutProperty("parcel-mask-fill", "visibility", "visible");
@@ -1112,10 +1116,8 @@ async function runCorridorAnalysis(lineGeom) {
   // Buffer the line using turf
   const buffered = turf.buffer(turf.lineString(coords), miles, { units: "miles" });
 
-  map.getSource("corridor").setData({
-    type: "FeatureCollection",
-    features: [buffered],
-  });
+  _corridorData = { type: "FeatureCollection", features: [buffered] };
+  map.getSource("corridor").setData(_corridorData);
   setParcelMask(buffered);
 
   // Fit to corridor bounds
@@ -1160,7 +1162,8 @@ async function runRadiusAnalysis(center, miles) {
   // Draw circle using turf
   const circleGeoJSON = turf.circle([center.lng, center.lat], miles, { units: "miles", steps: 72 });
 
-  map.getSource("corridor").setData({ type: "FeatureCollection", features: [circleGeoJSON] });
+  _corridorData = { type: "FeatureCollection", features: [circleGeoJSON] };
+  map.getSource("corridor").setData(_corridorData);
   setParcelMask(circleGeoJSON);
   const bbox = turf.bbox(circleGeoJSON);
   map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 50, duration: 800 });
@@ -1194,10 +1197,8 @@ async function runPolygonAnalysis(polyGeom) {
   function inPoly(lat, lon) { return pointInPolygon(lat, lon, ring); }
 
   const polyBufferFeature = { type: "Feature", geometry: polyGeom, properties: {} };
-  map.getSource("corridor").setData({
-    type: "FeatureCollection",
-    features: [polyBufferFeature],
-  });
+  _corridorData = { type: "FeatureCollection", features: [polyBufferFeature] };
+  map.getSource("corridor").setData(_corridorData);
   setParcelMask(polyBufferFeature);
 
   const bbox = turf.bbox(polyBufferFeature);
@@ -2219,6 +2220,7 @@ window.togglePanel = togglePanel;
 // ── Reset map ───────────────────────────────────────────────────────────────
 function resetMap() {
   closePanel();
+  _corridorData = EMPTY_FC;
   map.getSource("corridor").setData(EMPTY_FC);
   map.getSource("highlight").setData(EMPTY_FC);
   map.getSource("analysis-tracts").setData(EMPTY_FC);
@@ -2326,23 +2328,21 @@ if (localStorage.getItem("darkMode") === "1") {
 var _savedAnalysis = null; // preserved across basemap changes
 
 function saveAnalysisState() {
-  try {
-    _savedAnalysis = {
-      corridor: map.getSource("corridor")?._data || EMPTY_FC,
-      highlight: map.getSource("highlight")?._data || EMPTY_FC,
-      parcelMask: map.getSource("parcel-mask")?._data || EMPTY_FC,
-      analysisTracts: _analysisTracts.slice(),
-      tractLayerVis: _tractLayerVisible,
-    };
-  } catch (e) { _savedAnalysis = null; }
+  _savedAnalysis = {
+    corridor: _corridorData,
+    parcelMask: _parcelMaskData,
+    analysisTracts: _analysisTracts.slice(),
+    tractLayerVis: _tractLayerVisible,
+  };
 }
 
 function restoreAnalysisState() {
   if (!_savedAnalysis) return;
   try {
-    map.getSource("corridor").setData(_savedAnalysis.corridor);
-    map.getSource("highlight").setData(_savedAnalysis.highlight);
-    map.getSource("parcel-mask").setData(_savedAnalysis.parcelMask);
+    _corridorData = _savedAnalysis.corridor;
+    _parcelMaskData = _savedAnalysis.parcelMask;
+    map.getSource("corridor").setData(_corridorData);
+    map.getSource("parcel-mask").setData(_parcelMaskData);
     if (_savedAnalysis.analysisTracts.length) {
       _analysisTracts = _savedAnalysis.analysisTracts;
       const fc = { type: "FeatureCollection", features: _analysisTracts.map(f => ({
