@@ -999,6 +999,13 @@
               <button id="polygon-draw-btn" class="analysis-btn" title="Draw a freeform boundary — all features inside are analyzed">Polygon</button>
               <button id="corridor-clear-btn" style="display:none">Clear</button>
             </div>
+            <!-- Quick layer toggles inside Analyze tab -->
+            <div id="analyze-layer-toggles" style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">
+              <button class="layer-toggle-btn" id="analyze-svi-toggle" onclick="document.getElementById('svi-toggle').click()" style="font-size:10px;padding:3px 10px">SVI</button>
+              <button class="layer-toggle-btn" id="analyze-nri-toggle" onclick="document.getElementById('nri-toggle').click()" style="font-size:10px;padding:3px 10px">NRI</button>
+              <button class="layer-toggle-btn" id="analyze-parcel-toggle" onclick="document.getElementById('parcel-toggle').click()" style="font-size:10px;padding:3px 10px">Parcels</button>
+              <button class="layer-toggle-btn" id="analyze-tract-toggle" onclick="window.toggleMapLayer('tract')" style="font-size:10px;padding:3px 10px">Tracts</button>
+            </div>
           </div>
         </div>
         <div id="acc-corridor-results">

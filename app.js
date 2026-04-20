@@ -684,6 +684,7 @@ document.getElementById("svi-toggle").addEventListener("click", () => {
   map.setLayoutProperty("svi-fill", "visibility", newVis);
   btn.textContent = newVis === "visible" ? "ON" : "OFF";
   btn.classList.toggle("active", newVis === "visible");
+  document.getElementById("analyze-svi-toggle")?.classList.toggle("active", newVis === "visible");
   applyFilters();
 });
 
@@ -694,6 +695,7 @@ document.getElementById("nri-toggle").addEventListener("click", () => {
   map.setLayoutProperty("nri-fill", "visibility", newVis);
   btn.textContent = newVis === "visible" ? "ON" : "OFF";
   btn.classList.toggle("active", newVis === "visible");
+  document.getElementById("analyze-nri-toggle")?.classList.toggle("active", newVis === "visible");
   applyFilters();
 });
 
@@ -720,6 +722,7 @@ document.getElementById("parcel-toggle").addEventListener("click", () => {
   btn.textContent = _parcelVisible ? "ON" : "OFF";
   btn.classList.toggle("active", _parcelVisible);
   document.getElementById("fab-parcels")?.classList.toggle("active", _parcelVisible);
+  document.getElementById("analyze-parcel-toggle")?.classList.toggle("active", _parcelVisible);
   document.getElementById("parcel-legend").style.display = _parcelVisible ? "" : "none";
 });
 
@@ -923,6 +926,7 @@ window.toggleMapLayer = (type) => {
     map.setLayoutProperty("analysis-tracts-fill", "visibility", vis);
     map.setLayoutProperty("analysis-tracts-outline", "visibility", vis);
     document.getElementById("fab-tracts")?.classList.toggle("active", _tractLayerVisible);
+    document.getElementById("analyze-tract-toggle")?.classList.toggle("active", _tractLayerVisible);
     return;
   }
   const layerMap = {
@@ -998,6 +1002,7 @@ function setAnalysisTracts(tractFeatures) {
     map.setLayoutProperty("analysis-tracts-fill", "visibility", "visible");
     map.setLayoutProperty("analysis-tracts-outline", "visibility", "visible");
     document.getElementById("fab-tracts")?.classList.add("active");
+    document.getElementById("analyze-tract-toggle")?.classList.add("active");
   }
 }
 
@@ -1050,14 +1055,8 @@ async function runCorridorAnalysis(lineGeom) {
 
   const tractsInCorridor = (_tractFeatures || []).filter(f => {
     try {
-      const coords = f.geometry?.coordinates;
-      if (!coords) return false;
-      const ring = Array.isArray(coords[0][0]) ? coords[0] : coords;
-      const lons = ring.map(c => c[0]);
-      const lats = ring.map(c => c[1]);
-      const cLon = lons.reduce((a, b) => a + b, 0) / lons.length;
-      const cLat = lats.reduce((a, b) => a + b, 0) / lats.length;
-      return nearLine(cLat, cLon);
+      if (!f.geometry?.coordinates) return false;
+      return turf.booleanIntersects(buffered, f);
     } catch (e) { return false; }
   });
   const tractGeoids = tractsInCorridor.map(f => f.properties?.GEOID).filter(Boolean);
@@ -1098,14 +1097,8 @@ async function runRadiusAnalysis(center, miles) {
 
   const tractsIn = (_tractFeatures || []).filter(f => {
     try {
-      const coords = f.geometry?.coordinates;
-      if (!coords) return false;
-      const ring = Array.isArray(coords[0][0]) ? coords[0] : coords;
-      const lons = ring.map(c => c[0]);
-      const lats = ring.map(c => c[1]);
-      const cLon = lons.reduce((a, b) => a + b, 0) / lons.length;
-      const cLat = lats.reduce((a, b) => a + b, 0) / lats.length;
-      return inRadius(cLat, cLon);
+      if (!f.geometry?.coordinates) return false;
+      return turf.booleanIntersects(circleGeoJSON, f);
     } catch (e) { return false; }
   });
   const tractGeoids = tractsIn.map(f => f.properties?.GEOID).filter(Boolean);
@@ -1138,16 +1131,11 @@ async function runPolygonAnalysis(polyGeom) {
   const sheltsIn = shelters.filter(s => inPoly(s.lat, s.lon));
   const volsIn   = volunteers.filter(v => inPoly(v.lat, v.lon));
 
+  const polyFeature = { type: "Feature", geometry: polyGeom, properties: {} };
   const tractsIn = (_tractFeatures || []).filter(f => {
     try {
-      const coords = f.geometry?.coordinates;
-      if (!coords) return false;
-      const r = Array.isArray(coords[0][0]) ? coords[0] : coords;
-      const lons = r.map(c => c[0]);
-      const lats = r.map(c => c[1]);
-      const cLon = lons.reduce((a, b) => a + b, 0) / lons.length;
-      const cLat = lats.reduce((a, b) => a + b, 0) / lats.length;
-      return inPoly(cLat, cLon);
+      if (!f.geometry?.coordinates) return false;
+      return turf.booleanIntersects(polyFeature, f);
     } catch (e) { return false; }
   });
   const tractGeoids = tractsIn.map(f => f.properties?.GEOID).filter(Boolean);
