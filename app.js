@@ -10,6 +10,13 @@ const BASEMAPS = [
   { name: "Dark",       url: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json" },
   { name: "Streets",    url: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json" },
   { name: "OSM Liberty", url: "https://tiles.openfreemap.org/styles/liberty" },
+  { name: "Satellite",  url: "__satellite__",
+    style: { version: 8, sources: {
+      "esri-satellite": { type: "raster", tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+      ], tileSize: 256, maxzoom: 19, attribution: "Esri, Maxar, Earthstar" }
+    }, layers: [{ id: "satellite", type: "raster", source: "esri-satellite" }] }
+  },
 ];
 var _bmIdx = 0;
 
@@ -191,7 +198,8 @@ var _radiusClickHandler = null;
 const savedBm = localStorage.getItem("selectedBasemap");
 const savedIdx = savedBm ? BASEMAPS.findIndex(b => b.url === savedBm) : -1;
 if (savedIdx >= 0) _bmIdx = savedIdx;
-const initStyle = savedIdx >= 0 ? savedBm : BASEMAPS[0].url;
+const initBm = savedIdx >= 0 ? BASEMAPS[savedIdx] : BASEMAPS[0];
+const initStyle = initBm.style || initBm.url;
 
 const map = new maplibregl.Map({
   container: "map",
@@ -2379,7 +2387,7 @@ function toggleBasemapPicker() {
       btn.style.cssText = "display:block;width:100%;background:" + (isActive ? "rgba(165,28,48,0.25)" : "none") + ";border:none;border-bottom:1px solid rgba(255,255,255,0.08);color:" + (isActive ? "#fff" : "rgba(255,255,255,0.65)") + ";font-family:Arial,sans-serif;font-size:12px;font-weight:" + (isActive ? "700" : "400") + ";padding:10px 16px;cursor:pointer;text-align:left";
       btn.onclick = () => {
         _bmIdx = i;
-        map.setStyle(bm.url);
+        map.setStyle(bm.style || bm.url);
         localStorage.setItem("selectedBasemap", bm.url);
         map.once("style.load", () => { reinitMapLayers(); });
         toggleBasemapPicker();
