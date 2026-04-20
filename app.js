@@ -850,22 +850,31 @@ function applyParcelFilters() {
   const conditions = [];
 
   // Type filter (All / Residential / subtypes / Commercial)
+  // Florida DOR use codes in tiles: 10xx=SFH, 20xx=Mobile, 30xx=Multi(<10), 40xx=Condo, 80xx=Multi(10+)
   if (_parcelTypeFilter === "residential") {
-    conditions.push(["==", ["get", "res"], 1]);
-  } else if (_parcelTypeFilter === "sfh") {
-    // Florida DOR 01xx = Single Family
-    conditions.push(["==", ["slice", ["get", "uc"], 0, 2], "01"]);
-  } else if (_parcelTypeFilter === "mobile") {
-    // Florida DOR 02xx = Mobile Home
-    conditions.push(["==", ["slice", ["get", "uc"], 0, 2], "02"]);
-  } else if (_parcelTypeFilter === "condo") {
-    // Florida DOR 04xx = Condominiums
-    conditions.push(["==", ["slice", ["get", "uc"], 0, 2], "04"]);
-  } else if (_parcelTypeFilter === "multifam") {
-    // Florida DOR 03xx (<10 units) + 08xx (10+ units) = Apartments/Multi-family
+    const ucNum = ["to-number", ["get", "uc"], 0];
     conditions.push(["any",
-      ["==", ["slice", ["get", "uc"], 0, 2], "03"],
-      ["==", ["slice", ["get", "uc"], 0, 2], "08"]
+      ["==", ["get", "res"], 1],
+      ["all", [">=", ucNum, 1000], ["<", ucNum, 1200]],
+      ["all", [">=", ucNum, 2000], ["<", ucNum, 2100]],
+      ["all", [">=", ucNum, 3000], ["<", ucNum, 3100]],
+      ["all", [">=", ucNum, 4000], ["<", ucNum, 4100]],
+      ["all", [">=", ucNum, 8000], ["<", ucNum, 8100]],
+    ]);
+  } else if (_parcelTypeFilter === "sfh") {
+    const ucNum = ["to-number", ["get", "uc"], 0];
+    conditions.push(["all", [">=", ucNum, 1000], ["<", ucNum, 1100]]);
+  } else if (_parcelTypeFilter === "mobile") {
+    const ucNum = ["to-number", ["get", "uc"], 0];
+    conditions.push(["all", [">=", ucNum, 2000], ["<", ucNum, 2100]]);
+  } else if (_parcelTypeFilter === "condo") {
+    const ucNum = ["to-number", ["get", "uc"], 0];
+    conditions.push(["all", [">=", ucNum, 4000], ["<", ucNum, 4100]]);
+  } else if (_parcelTypeFilter === "multifam") {
+    const ucNum = ["to-number", ["get", "uc"], 0];
+    conditions.push(["any",
+      ["all", [">=", ucNum, 3000], ["<", ucNum, 3100]],
+      ["all", [">=", ucNum, 8000], ["<", ucNum, 8100]],
     ]);
   } else if (_parcelTypeFilter === "commercial") {
     conditions.push(["==", ["get", "res"], 0]);
