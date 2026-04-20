@@ -737,9 +737,10 @@ document.getElementById("parcel-toggle").addEventListener("click", () => {
   const vis = _parcelVisible ? "visible" : "none";
   map.setLayoutProperty("parcels-fill", "visibility", vis);
   map.setLayoutProperty("parcels-outline", "visibility", vis);
-  // Show/hide parcel mask based on whether parcels are on and an analysis area exists
-  const hasMask = map.getSource("parcel-mask") && _analysisTracts.length > 0;
-  map.setLayoutProperty("parcel-mask-fill", "visibility", _parcelVisible && hasMask ? "visible" : "none");
+  // Show/hide parcel mask — only when an analysis buffer is active
+  const corridorData = map.getSource("corridor")?._data;
+  const hasBuffer = corridorData && corridorData.features && corridorData.features.length > 0;
+  map.setLayoutProperty("parcel-mask-fill", "visibility", _parcelVisible && hasBuffer ? "visible" : "none");
   btn.textContent = _parcelVisible ? "ON" : "OFF";
   btn.classList.toggle("active", _parcelVisible);
   document.getElementById("fab-parcels")?.classList.toggle("active", _parcelVisible);
