@@ -1010,6 +1010,15 @@
               <button class="layer-toggle-btn" id="analyze-parcel-toggle" onclick="document.getElementById('parcel-toggle').click()" style="font-size:10px;padding:3px 10px">Parcels</button>
               <button class="layer-toggle-btn" id="analyze-tract-toggle" onclick="window.toggleMapLayer('tract')" style="font-size:10px;padding:3px 10px">Tracts</button>
             </div>
+            <!-- Parcel subtype filters (mirrors Layers tab chips) -->
+            <div id="analyze-parcel-types" style="display:none;gap:4px;margin-top:6px;flex-wrap:wrap">
+              <button class="parcel-chip-type active" data-ptype="all" style="padding:2px 8px;border-radius:12px;font-size:10px;border:1px solid #888;background:#41b6c4;color:#fff;cursor:pointer">All</button>
+              <button class="parcel-chip-type" data-ptype="sfh" style="padding:2px 8px;border-radius:12px;font-size:10px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Single Family</button>
+              <button class="parcel-chip-type" data-ptype="mobile" style="padding:2px 8px;border-radius:12px;font-size:10px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Mobile Home</button>
+              <button class="parcel-chip-type" data-ptype="condo" style="padding:2px 8px;border-radius:12px;font-size:10px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Condo</button>
+              <button class="parcel-chip-type" data-ptype="multifam" style="padding:2px 8px;border-radius:12px;font-size:10px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Apartments</button>
+              <button class="parcel-chip-type" data-ptype="commercial" style="padding:2px 8px;border-radius:12px;font-size:10px;border:1px solid #888;background:transparent;color:var(--text-primary,#333);cursor:pointer">Commercial</button>
+            </div>
           </div>
         </div>
         <div id="acc-corridor-results">

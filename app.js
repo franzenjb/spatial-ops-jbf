@@ -736,6 +736,7 @@ document.getElementById("parcel-toggle").addEventListener("click", () => {
   btn.classList.toggle("active", _parcelVisible);
   document.getElementById("fab-parcels")?.classList.toggle("active", _parcelVisible);
   document.getElementById("analyze-parcel-toggle")?.classList.toggle("active", _parcelVisible);
+  document.getElementById("analyze-parcel-types").style.display = _parcelVisible ? "flex" : "none";
   document.getElementById("parcel-legend").style.display = _parcelVisible ? "" : "none";
 });
 
