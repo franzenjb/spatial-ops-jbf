@@ -2305,9 +2305,9 @@ window.switchState = switchState;
 function toggleDarkMode() {
   const isDark = document.body.classList.toggle("dark");
   if (!localStorage.getItem("selectedBasemap")) {
+    saveAnalysisState();
     map.setStyle(isDark ? BASEMAPS[1].url : BASEMAPS[0].url);
-    // Re-add sources and layers after style change
-    map.once("style.load", () => { reinitMapLayers(); });
+    map.once("style.load", () => { reinitMapLayers(); restoreAnalysisState(); });
   }
   document.getElementById("dark-toggle").innerHTML = isDark ? "☀ Light" : "☾ Dark";
   localStorage.setItem("darkMode", isDark ? "1" : "0");
@@ -2321,6 +2321,44 @@ if (localStorage.getItem("darkMode") === "1") {
     map.setStyle(BASEMAPS[1].url);
     map.once("style.load", () => { reinitMapLayers(); });
   }
+}
+
+var _savedAnalysis = null; // preserved across basemap changes
+
+function saveAnalysisState() {
+  try {
+    _savedAnalysis = {
+      corridor: map.getSource("corridor")?._data || EMPTY_FC,
+      highlight: map.getSource("highlight")?._data || EMPTY_FC,
+      parcelMask: map.getSource("parcel-mask")?._data || EMPTY_FC,
+      analysisTracts: _analysisTracts.slice(),
+      tractLayerVis: _tractLayerVisible,
+    };
+  } catch (e) { _savedAnalysis = null; }
+}
+
+function restoreAnalysisState() {
+  if (!_savedAnalysis) return;
+  try {
+    map.getSource("corridor").setData(_savedAnalysis.corridor);
+    map.getSource("highlight").setData(_savedAnalysis.highlight);
+    map.getSource("parcel-mask").setData(_savedAnalysis.parcelMask);
+    if (_savedAnalysis.analysisTracts.length) {
+      _analysisTracts = _savedAnalysis.analysisTracts;
+      const fc = { type: "FeatureCollection", features: _analysisTracts.map(f => ({
+        type: "Feature", geometry: f.geometry, properties: { GEOID: f.properties?.GEOID || "" },
+      }))};
+      map.getSource("analysis-tracts").setData(fc);
+      if (_savedAnalysis.tractLayerVis) {
+        map.setLayoutProperty("analysis-tracts-fill", "visibility", "visible");
+        map.setLayoutProperty("analysis-tracts-outline", "visibility", "visible");
+      }
+    }
+    if (_parcelVisible && _savedAnalysis.parcelMask?.features?.length) {
+      map.setLayoutProperty("parcel-mask-fill", "visibility", "visible");
+    }
+  } catch (e) { console.warn("restore analysis:", e); }
+  _savedAnalysis = null;
 }
 
 function reinitMapLayers() {
@@ -2388,9 +2426,10 @@ function toggleBasemapPicker() {
       btn.style.cssText = "display:block;width:100%;background:" + (isActive ? "rgba(165,28,48,0.25)" : "none") + ";border:none;border-bottom:1px solid rgba(255,255,255,0.08);color:" + (isActive ? "#fff" : "rgba(255,255,255,0.65)") + ";font-family:Arial,sans-serif;font-size:12px;font-weight:" + (isActive ? "700" : "400") + ";padding:10px 16px;cursor:pointer;text-align:left";
       btn.onclick = () => {
         _bmIdx = i;
+        saveAnalysisState();
         map.setStyle(bm.style || bm.url);
         localStorage.setItem("selectedBasemap", bm.url);
-        map.once("style.load", () => { reinitMapLayers(); });
+        map.once("style.load", () => { reinitMapLayers(); restoreAnalysisState(); });
         toggleBasemapPicker();
       };
       picker.appendChild(btn);
