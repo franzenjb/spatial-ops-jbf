@@ -267,6 +267,16 @@ map.on("load", async () => {
     paint: { "line-color": "rgba(30,30,30,0.6)", "line-width": 0.5, "line-opacity": 0.6 },
   });
 
+  // ── Parcel mask (dims parcels outside the analysis buffer) ──────────────
+  map.addSource("parcel-mask", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "parcel-mask-fill",
+    type: "fill",
+    source: "parcel-mask",
+    layout: { visibility: "none" },
+    paint: { "fill-color": "#f5f3f0", "fill-opacity": 0.82 },
+  });
+
   // ── SVI tract choropleth source ─────────────────────────────────────────
   map.addSource("svi-tracts", { type: "geojson", data: EMPTY_FC });
   map.addLayer({
@@ -719,6 +729,9 @@ document.getElementById("parcel-toggle").addEventListener("click", () => {
   const vis = _parcelVisible ? "visible" : "none";
   map.setLayoutProperty("parcels-fill", "visibility", vis);
   map.setLayoutProperty("parcels-outline", "visibility", vis);
+  // Show/hide parcel mask based on whether parcels are on and an analysis area exists
+  const hasMask = map.getSource("parcel-mask") && _analysisTracts.length > 0;
+  map.setLayoutProperty("parcel-mask-fill", "visibility", _parcelVisible && hasMask ? "visible" : "none");
   btn.textContent = _parcelVisible ? "ON" : "OFF";
   btn.classList.toggle("active", _parcelVisible);
   document.getElementById("fab-parcels")?.classList.toggle("active", _parcelVisible);
@@ -835,9 +848,27 @@ function applyParcelFilters() {
   if (!_parcelVisible) return;
   const conditions = [];
 
-  // Type filter (All / Residential / Commercial)
-  if (_parcelTypeFilter === "residential") conditions.push(["==", ["get", "res"], 1]);
-  else if (_parcelTypeFilter === "commercial") conditions.push(["==", ["get", "res"], 0]);
+  // Type filter (All / Residential / subtypes / Commercial)
+  if (_parcelTypeFilter === "residential") {
+    conditions.push(["==", ["get", "res"], 1]);
+  } else if (_parcelTypeFilter === "sfh") {
+    // Florida DOR 01xx = Single Family
+    conditions.push(["==", ["slice", ["get", "uc"], 0, 2], "01"]);
+  } else if (_parcelTypeFilter === "mobile") {
+    // Florida DOR 02xx = Mobile Home
+    conditions.push(["==", ["slice", ["get", "uc"], 0, 2], "02"]);
+  } else if (_parcelTypeFilter === "condo") {
+    // Florida DOR 04xx = Condominiums
+    conditions.push(["==", ["slice", ["get", "uc"], 0, 2], "04"]);
+  } else if (_parcelTypeFilter === "multifam") {
+    // Florida DOR 03xx (<10 units) + 08xx (10+ units) = Apartments/Multi-family
+    conditions.push(["any",
+      ["==", ["slice", ["get", "uc"], 0, 2], "03"],
+      ["==", ["slice", ["get", "uc"], 0, 2], "08"]
+    ]);
+  } else if (_parcelTypeFilter === "commercial") {
+    conditions.push(["==", ["get", "res"], 0]);
+  }
 
   // Value chip filters — OR together when multiple selected
   if (_activeValChips.size > 0) {
@@ -985,6 +1016,29 @@ function distToSegment(px, py, ax, ay, bx, by) {
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+function setParcelMask(bufferFeature) {
+  if (!bufferFeature) {
+    map.getSource("parcel-mask").setData(EMPTY_FC);
+    map.setLayoutProperty("parcel-mask-fill", "visibility", "none");
+    return;
+  }
+  // World polygon with buffer as hole — dims everything outside the buffer
+  const world = [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]];
+  const bufferRing = bufferFeature.geometry.coordinates[0];
+  const mask = {
+    type: "FeatureCollection",
+    features: [{
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [world, bufferRing] },
+      properties: {},
+    }],
+  };
+  map.getSource("parcel-mask").setData(mask);
+  if (_parcelVisible) {
+    map.setLayoutProperty("parcel-mask-fill", "visibility", "visible");
+  }
+}
+
 function setAnalysisTracts(tractFeatures) {
   _analysisTracts = tractFeatures;
   const fc = {
@@ -1043,6 +1097,7 @@ async function runCorridorAnalysis(lineGeom) {
     type: "FeatureCollection",
     features: [buffered],
   });
+  setParcelMask(buffered);
 
   // Fit to corridor bounds
   const bbox = turf.bbox(buffered);
@@ -1087,6 +1142,7 @@ async function runRadiusAnalysis(center, miles) {
   const circleGeoJSON = turf.circle([center.lng, center.lat], miles, { units: "miles", steps: 72 });
 
   map.getSource("corridor").setData({ type: "FeatureCollection", features: [circleGeoJSON] });
+  setParcelMask(circleGeoJSON);
   const bbox = turf.bbox(circleGeoJSON);
   map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 50, duration: 800 });
 
@@ -1118,12 +1174,14 @@ async function runPolygonAnalysis(polyGeom) {
   const ring = polyGeom.coordinates[0];
   function inPoly(lat, lon) { return pointInPolygon(lat, lon, ring); }
 
+  const polyBufferFeature = { type: "Feature", geometry: polyGeom, properties: {} };
   map.getSource("corridor").setData({
     type: "FeatureCollection",
-    features: [{ type: "Feature", geometry: polyGeom, properties: {} }],
+    features: [polyBufferFeature],
   });
+  setParcelMask(polyBufferFeature);
 
-  const bbox = turf.bbox({ type: "Feature", geometry: polyGeom });
+  const bbox = turf.bbox(polyBufferFeature);
   map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 50, duration: 800 });
 
   const { fires = [], shelters = [], volunteers = [] } = window._data || {};
@@ -2145,6 +2203,7 @@ function resetMap() {
   map.getSource("corridor").setData(EMPTY_FC);
   map.getSource("highlight").setData(EMPTY_FC);
   map.getSource("analysis-tracts").setData(EMPTY_FC);
+  setParcelMask(null);
   _analysisTracts = [];
   _tractLayerVisible = false;
   map.setLayoutProperty("analysis-tracts-fill", "visibility", "none");
@@ -2281,6 +2340,10 @@ function reinitMapLayers() {
   if (!map.getSource("highlight")) {
     map.addSource("highlight", { type: "geojson", data: EMPTY_FC });
     map.addLayer({ id: "highlight-point", type: "circle", source: "highlight", paint: { "circle-radius": 8, "circle-color": "#ED1B2E", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+  }
+  if (!map.getSource("parcel-mask")) {
+    map.addSource("parcel-mask", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "parcel-mask-fill", type: "fill", source: "parcel-mask", layout: { visibility: "none" }, paint: { "fill-color": "#f5f3f0", "fill-opacity": 0.82 } });
   }
   if (!map.getSource("analysis-tracts")) {
     map.addSource("analysis-tracts", { type: "geojson", data: EMPTY_FC });
