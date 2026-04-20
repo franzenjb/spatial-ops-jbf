@@ -171,6 +171,8 @@ var _parcelFetchTimer = null;
 var _parcelFilter = "all"; // legacy — replaced by _parcelTypeFilter + _activeValChips
 // Parcel filter state
 var _parcelVisible = false;
+var _tractLayerVisible = false;
+var _analysisTracts = [];  // tract features matching current analysis
 var _radiusClickHandler = null;
 
 // Populate state dropdown
@@ -368,6 +370,30 @@ map.on("load", async () => {
     type: "circle",
     source: "highlight",
     paint: { "circle-radius": 8, "circle-color": "#ED1B2E", "circle-stroke-color": "#fff", "circle-stroke-width": 2 },
+  });
+
+  // ── Analysis tracts highlight layer ────────────────────────────────────
+  map.addSource("analysis-tracts", { type: "geojson", data: EMPTY_FC });
+  map.addLayer({
+    id: "analysis-tracts-fill",
+    type: "fill",
+    source: "analysis-tracts",
+    layout: { visibility: "none" },
+    paint: {
+      "fill-color": "#e67e22",
+      "fill-opacity": 0.25,
+    },
+  });
+  map.addLayer({
+    id: "analysis-tracts-outline",
+    type: "line",
+    source: "analysis-tracts",
+    layout: { visibility: "none" },
+    paint: {
+      "line-color": "#e67e22",
+      "line-width": 2,
+      "line-dasharray": [3, 2],
+    },
   });
 
   // ── Load initial data ───────────────────────────────────────────────────
@@ -611,7 +637,7 @@ async function fetchAndBuildNRI() {
 
   try {
     const nriPromise = sbFetchAll("nri",
-      `select=tractfips,risk_score,risk_ratng,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks&stateabbrv=eq.${_currentStateAbbr}`);
+      `select=tractfips,risk_score,risk_ratng,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&stateabbrv=eq.${_currentStateAbbr}`);
     let tractFeatures = [];
     try { tractFeatures = await fetchTIGERwebTracts(statusEl); } catch (e) { console.warn("TIGERweb failed:", e.message); }
     const nriData = await nriPromise;
@@ -891,6 +917,14 @@ window.toggleMapLayer = (type) => {
     document.getElementById("parcel-toggle").click();
     return;
   }
+  if (type === "tract") {
+    _tractLayerVisible = !_tractLayerVisible;
+    const vis = _tractLayerVisible ? "visible" : "none";
+    map.setLayoutProperty("analysis-tracts-fill", "visibility", vis);
+    map.setLayoutProperty("analysis-tracts-outline", "visibility", vis);
+    document.getElementById("fab-tracts")?.classList.toggle("active", _tractLayerVisible);
+    return;
+  }
   const layerMap = {
     fire: ["fires-no-rc", "fires-rc"],
     shelter: ["shelters-layer"],
@@ -945,6 +979,26 @@ function distToSegment(px, py, ax, ay, bx, by) {
   if (dx === 0 && dy === 0) return Math.hypot(px - ax, py - ay);
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function setAnalysisTracts(tractFeatures) {
+  _analysisTracts = tractFeatures;
+  const fc = {
+    type: "FeatureCollection",
+    features: tractFeatures.map(f => ({
+      type: "Feature",
+      geometry: f.geometry,
+      properties: { GEOID: f.properties?.GEOID || "" },
+    })),
+  };
+  map.getSource("analysis-tracts").setData(fc);
+  // Auto-show when analysis runs, auto-activate FAB
+  if (tractFeatures.length) {
+    _tractLayerVisible = true;
+    map.setLayoutProperty("analysis-tracts-fill", "visibility", "visible");
+    map.setLayoutProperty("analysis-tracts-outline", "visibility", "visible");
+    document.getElementById("fab-tracts")?.classList.add("active");
+  }
 }
 
 function tractBbox(geom) {
@@ -1007,6 +1061,7 @@ async function runCorridorAnalysis(lineGeom) {
     } catch (e) { return false; }
   });
   const tractGeoids = tractsInCorridor.map(f => f.properties?.GEOID).filter(Boolean);
+  setAnalysisTracts(tractsInCorridor);
 
   const corrBbox = {
     xmin: Math.min(...coords.map(c => c[0])) - threshDeg / lonScale,
@@ -1054,6 +1109,7 @@ async function runRadiusAnalysis(center, miles) {
     } catch (e) { return false; }
   });
   const tractGeoids = tractsIn.map(f => f.properties?.GEOID).filter(Boolean);
+  setAnalysisTracts(tractsIn);
 
   const radBbox = {
     xmin: center.lng - threshDeg / lonScale, ymin: center.lat - threshDeg,
@@ -1095,6 +1151,7 @@ async function runPolygonAnalysis(polyGeom) {
     } catch (e) { return false; }
   });
   const tractGeoids = tractsIn.map(f => f.properties?.GEOID).filter(Boolean);
+  setAnalysisTracts(tractsIn);
 
   const polyBbox = {
     xmin: Math.min(...ring.map(c => c[0])), ymin: Math.min(...ring.map(c => c[1])),
@@ -1130,19 +1187,23 @@ async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, an
 
   const fetchPromises = [];
   if (tractGeoids.length) {
-    const inFilter = `in.(${tractGeoids.join(",")})`;
+    const geoidSet = new Set(tractGeoids);
     const countyFips = [...new Set(tractGeoids.map(g => g.slice(0, 5)))];
     const countyFilter = `in.(${countyFips.join(",")})`;
+    // SVI + NRI: pull from already-loaded in-memory maps (avoids URL-length 400s)
+    sviRows = window._sviFullMap
+      ? tractGeoids.map(g => window._sviFullMap.get(g)).filter(Boolean)
+      : [];
+    nriRows = window._nriMap
+      ? tractGeoids.map(g => window._nriMap.get(g)).filter(Boolean)
+      : [];
     fetchPromises.push(
       Promise.all([
-        sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
-        sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
         sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
         // fema_declarations has no county_name column — we enrich from county_rankings/alice below
         sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
         sbFetch("county_rankings", `select=county_fips,county_name,population&county_fips=${countyFilter}`),
-      ]).then(([s, n, a, f, cr]) => {
-        sviRows = s; nriRows = n;
+      ]).then(([a, f, cr]) => {
         // Build fips → { name, pop } map from county_rankings (fallback to alice for name)
         const nameByFips = {};
         const popByFips = {};
@@ -1528,10 +1589,10 @@ function showResults(items, label) {
   if (accHdr) accHdr.textContent = `${label} (${items.length})`;
   if (!items.length) {
     list.innerHTML = '<div id="no-results">No results found</div>';
-    toggleAccordion("acc-results", true);
+    toggleAccordion("acc-results", false);
     return;
   }
-  toggleAccordion("acc-results", true);
+  toggleAccordion("acc-results", false);
   list.innerHTML = _renderResultCards(items);
   window._resultItems = items;
 }
@@ -2095,6 +2156,12 @@ function resetMap() {
   closePanel();
   map.getSource("corridor").setData(EMPTY_FC);
   map.getSource("highlight").setData(EMPTY_FC);
+  map.getSource("analysis-tracts").setData(EMPTY_FC);
+  _analysisTracts = [];
+  _tractLayerVisible = false;
+  map.setLayoutProperty("analysis-tracts-fill", "visibility", "none");
+  map.setLayoutProperty("analysis-tracts-outline", "visibility", "none");
+  document.getElementById("fab-tracts")?.classList.remove("active");
   draw.deleteAll();
   if (_radiusClickHandler) { map.off("click", _radiusClickHandler); _radiusClickHandler = null; }
   _isDrawing = false;
@@ -2227,6 +2294,11 @@ function reinitMapLayers() {
     map.addSource("highlight", { type: "geojson", data: EMPTY_FC });
     map.addLayer({ id: "highlight-point", type: "circle", source: "highlight", paint: { "circle-radius": 8, "circle-color": "#ED1B2E", "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
   }
+  if (!map.getSource("analysis-tracts")) {
+    map.addSource("analysis-tracts", { type: "geojson", data: EMPTY_FC });
+    map.addLayer({ id: "analysis-tracts-fill", type: "fill", source: "analysis-tracts", layout: { visibility: "none" }, paint: { "fill-color": "#e67e22", "fill-opacity": 0.25 } });
+    map.addLayer({ id: "analysis-tracts-outline", type: "line", source: "analysis-tracts", layout: { visibility: "none" }, paint: { "line-color": "#e67e22", "line-width": 2, "line-dasharray": [3, 2] } });
+  }
 
   // Re-load data into sources
   fetchAndBuildSVI();
@@ -2307,13 +2379,17 @@ document.getElementById("filter-analyze-btn").addEventListener("click", async ()
     }
 
     const tractGeoids = [...viewGEOIDs];
-    const inFilter = `in.(${tractGeoids.join(",")})`;
+    // SVI + NRI: pull from already-loaded in-memory maps (avoids URL-length 400s)
+    const sviRows = window._sviFullMap
+      ? tractGeoids.map(g => window._sviFullMap.get(g)).filter(Boolean)
+      : [];
+    const nriRows = window._nriMap
+      ? tractGeoids.map(g => window._nriMap.get(g)).filter(Boolean)
+      : [];
     const countyFips = [...new Set(tractGeoids.map(g => g.slice(0, 5)))];
     const countyFilter = `in.(${countyFips.join(",")})`;
 
-    const [sviRows, nriRows, aliceRows, femaRows] = await Promise.all([
-      sbFetch("svi", `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl&fips=${inFilter}`),
-      sbFetch("nri", `select=tractfips,risk_score,hrcn_risks,cfld_risks,ifld_risks,trnd_risks,wfir_risks,hwav_risks,resl_score,eal_valt&tractfips=${inFilter}`),
+    const [aliceRows, femaRows] = await Promise.all([
       sbFetch("alice", `select=fips_5,county_name,median_income,pct_poverty,pct_alice,pct_struggling&fips_5=${countyFilter}`),
       sbFetch("fema_declarations", `select=fips_5,total_declarations,most_recent_title,hurricane_count,flood_count,top_hazard,declarations_per_year&fips_5=${countyFilter}`),
     ]);

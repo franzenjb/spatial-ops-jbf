@@ -354,8 +354,9 @@
     .layers-acc { border-bottom: 1px solid var(--border-color, #ddd); }
     .layers-acc-header {
       display: flex; align-items: center; gap: 7px;
-      padding: 10px 6px; margin: 0 -6px; cursor: pointer; font-size: 13px; font-weight: 600;
-      color: var(--text-primary, #333); user-select: none;
+      padding: 10px 6px; margin: 0 -6px; cursor: pointer; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: #666; user-select: none;
       border-radius: 3px; transition: background 0.15s, color 0.15s;
     }
     .layers-acc-header:hover { background: rgba(165,28,48,0.08); color: #a51c30; }
@@ -363,12 +364,13 @@
       font-size: 11px; line-height: 1; color: #a51c30;
       transition: transform 0.2s; flex-shrink: 0; width: 10px; text-align: center;
     }
-    .layers-acc.open .layers-acc-header { color: #a51c30; }
+    .layers-acc.open .layers-acc-header { color: #a51c30; background: rgba(165,28,48,0.04); }
     .layers-acc.open .layers-acc-arrow { transform: rotate(90deg); }
     .layers-acc-body { display: none; padding: 2px 0 10px 18px; }
     .layers-acc.open .layers-acc-body { display: block; }
     body.dark .layers-acc { border-bottom-color: rgba(255,255,255,0.08); }
     body.dark .layers-acc-header { color: #ccdaeb; }
+    body.dark .layers-acc.open .layers-acc-header { color: #ff5a6e; }
     body.dark .layers-acc-header:hover { background: rgba(237,27,46,0.14); color: #ff5a6e; }
     body.dark .layers-acc-arrow { color: #ed1b2e; }
     body.dark .layers-acc.open .layers-acc-header { color: #ff5a6e; }
@@ -612,7 +614,8 @@
     .tp-dual-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: #888; }
     .tp-dual-score { font-size: 28px; font-weight: 800; }
     .tp-dual-cat { font-size: 11px; font-weight: 600; }
-    .tp-section { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #a51c30; margin: 14px 0 6px; padding-top: 8px; border-top: 1px solid var(--border-color); }
+    .tp-section { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #666; margin: 14px 0 6px; padding-top: 8px; border-top: 1px solid var(--border-color); }
+    .tp-acc[open] > summary.tp-section { color: #a51c30; }
     .tp-subhead { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #888; margin: 8px 0 3px; }
     body.dark .tp-subhead { color: #8899aa; }
     .tp-caption { font-size: 11px; color: #888; margin: 6px 0 10px; font-style: italic; text-align: center; }
@@ -730,7 +733,8 @@
     #state-select option { background: #1a1a1a; color: #fff; }
     body.dark .tp-hero { background: rgba(255,255,255,0.06); }
     body.dark .tp-dual-card { background: rgba(255,255,255,0.04); }
-    body.dark .tp-section { color: #8899aa; border-top-color: rgba(255,255,255,0.06); }
+    body.dark .tp-section { color: #ccdaeb; border-top-color: rgba(255,255,255,0.06); }
+    body.dark .tp-acc[open] > summary.tp-section { color: #ff5a6e; }
     body.dark .tp-bar-head { color: #ccdaeb; }
     body.dark .tp-bar-track { background: rgba(255,255,255,0.08); }
     body.dark .tp-kv { border-bottom-color: rgba(255,255,255,0.04); }
@@ -790,6 +794,9 @@
       </button>
       <button class="fab-btn" id="fab-parcels" onclick="window.toggleMapLayer('parcel')" title="Toggle Parcels (Florida)">
         <span class="fab-dot" style="background:#41b6c4"></span>Parcels
+      </button>
+      <button class="fab-btn" id="fab-tracts" onclick="window.toggleMapLayer('tract')" title="Toggle Census Tracts in Analysis">
+        <span class="fab-square" style="background:#e67e22"></span>Tracts
       </button>
       <button class="fab-btn reset-btn" onclick="resetMap()" title="Reset Map">↺ Reset</button>
     </div>
