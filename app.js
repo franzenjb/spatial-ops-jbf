@@ -284,7 +284,7 @@ map.on("load", async () => {
     type: "fill",
     source: "parcel-mask",
     layout: { visibility: "none" },
-    paint: { "fill-color": "#f5f3f0", "fill-opacity": 0.82 },
+    paint: { "fill-color": "#f5f3f0", "fill-opacity": 0.55 },
   });
 
   // ── SVI tract choropleth source ─────────────────────────────────────────
@@ -296,11 +296,11 @@ map.on("load", async () => {
     layout: { visibility: "none" },
     paint: {
       "fill-color": ["case",
-        [">=", ["to-number", ["get", "rpl"], -1], 0.75], "rgba(192,57,43,0.65)",
-        [">=", ["to-number", ["get", "rpl"], -1], 0.50], "rgba(231,76,60,0.65)",
-        [">=", ["to-number", ["get", "rpl"], -1], 0.25], "rgba(243,156,18,0.65)",
-        [">=", ["to-number", ["get", "rpl"], -1], 0],    "rgba(249,231,159,0.65)",
-        "rgba(204,204,204,0.55)"
+        [">=", ["to-number", ["get", "rpl"], -1], 0.75], "rgba(192,57,43,0.4)",
+        [">=", ["to-number", ["get", "rpl"], -1], 0.50], "rgba(231,76,60,0.4)",
+        [">=", ["to-number", ["get", "rpl"], -1], 0.25], "rgba(243,156,18,0.4)",
+        [">=", ["to-number", ["get", "rpl"], -1], 0],    "rgba(249,231,159,0.4)",
+        "rgba(204,204,204,0.3)"
       ],
       "fill-outline-color": "rgba(80,80,80,0.25)",
     },
@@ -315,11 +315,11 @@ map.on("load", async () => {
     layout: { visibility: "none" },
     paint: {
       "fill-color": ["case",
-        [">=", ["to-number", ["get", "score"], -1], 80], "rgba(123,45,139,0.65)",
-        [">=", ["to-number", ["get", "score"], -1], 60], "rgba(192,57,43,0.65)",
-        [">=", ["to-number", ["get", "score"], -1], 40], "rgba(230,126,34,0.65)",
-        [">=", ["to-number", ["get", "score"], -1], 20], "rgba(241,196,15,0.65)",
-        "rgba(236,240,241,0.65)"
+        [">=", ["to-number", ["get", "score"], -1], 80], "rgba(123,45,139,0.4)",
+        [">=", ["to-number", ["get", "score"], -1], 60], "rgba(192,57,43,0.4)",
+        [">=", ["to-number", ["get", "score"], -1], 40], "rgba(230,126,34,0.4)",
+        [">=", ["to-number", ["get", "score"], -1], 20], "rgba(241,196,15,0.4)",
+        "rgba(236,240,241,0.4)"
       ],
       "fill-outline-color": "rgba(80,80,80,0.25)",
     },
@@ -401,7 +401,7 @@ map.on("load", async () => {
     layout: { visibility: "none" },
     paint: {
       "fill-color": "#e67e22",
-      "fill-opacity": 0.25,
+      "fill-opacity": 0.08,
     },
   });
   map.addLayer({
@@ -1474,24 +1474,11 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${hero}
 
     <div class="an-section-head">Population & Response</div>
-    ${weightedPop ? `<div style="font-size:10px;color:#5a7a99;margin:4px 0 0;text-align:center">Area-weighted estimate · ${validSVI.length} census tract${validSVI.length === 1 ? "" : "s"}</div>` : ""}
     ${dispPop > 0 ? `
-    <div class="an-grid-3">
-      <div class="an-card" style="border-left-color:#a51c30">
-        <div class="an-card-val" style="color:#a51c30">~${num(dispPop)}</div>
-        <div class="an-card-label">Population</div>
-        ${weightedPop && totalPop !== dispPop ? `<div class="an-card-sub">${num(totalPop)} in tracts</div>` : ""}
-      </div>
-      <div class="an-card" style="border-left-color:#e07830">
-        <div class="an-card-val" style="color:#e07830">~${num(dispElderly)}</div>
-        <div class="an-card-label">Age 65+</div>
-        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispElderly / dispPop * 100) + '%' : ''}</div>
-      </div>
-      <div class="an-card" style="border-left-color:#7b6cb7">
-        <div class="an-card-val" style="color:#7b6cb7">~${num(dispDisabled)}</div>
-        <div class="an-card-label">Disabled</div>
-        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispDisabled / dispPop * 100) + '%' : ''}</div>
-      </div>
+    <div class="an-pop-hero">
+      <div class="an-pop-hero-val">~${num(dispPop)}</div>
+      <div class="an-pop-hero-label">Estimated Population</div>
+      ${weightedPop && totalPop !== dispPop ? `<div class="an-pop-hero-sub">${num(totalPop)} across ${validSVI.length} tracts · area-weighted</div>` : ""}
     </div>
     ` : ""}
     <div class="an-response-row">
@@ -1579,48 +1566,94 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     </div>`;
     })() : ""}
 
-    ${validSVI.length ? `
-    <details open class="tp-acc">
-      <summary class="tp-section">Social Vulnerability (SVI)</summary>
-      <div class="tp-caption" style="text-align:left;margin:-2px 0 6px">Percentile rank vs. all US tracts · ${validSVI.length} tract${validSVI.length === 1 ? "" : "s"} · ~${num(dispPop)} residents${weightedPop ? ' (area-weighted)' : ''}</div>
-      ${bar("Overall vulnerability", avgRpl, false)}
-      ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false)}
-      ${bar("Household", avg(validSVI, "rpl_theme2"), false)}
-      ${bar("Racial & Ethnic Minority", avg(validSVI, "rpl_theme3"), false)}
-      ${bar("Housing & Transportation", avg(validSVI, "rpl_theme4"), false)}
-    </details>
+    ${validSVI.length ? (() => {
+      const totalPov150 = validSVI.reduce((s, r) => s + (r.e_pov150 || 0), 0);
+      const sviOverall = avgRpl != null ? Math.round(avgRpl * 100) : null;
+      return `
+    <div class="an-section-head">Social Vulnerability</div>
+    ${sviOverall != null ? `
+    <div class="an-grid-2" style="margin-top:6px">
+      <div class="an-card" style="border-left-color:${sviOverall >= 75 ? '#e05070' : sviOverall >= 50 ? '#e07830' : sviOverall >= 25 ? '#d4a020' : '#78aa28'}">
+        <div class="an-card-val" style="color:${sviOverall >= 75 ? '#e05070' : sviOverall >= 50 ? '#e07830' : sviOverall >= 25 ? '#d4a020' : '#78aa28'}">${sviOverall}%</div>
+        <div class="an-card-label">Overall SVI</div>
+        <div class="an-card-sub">~${num(dispPop)} people</div>
+      </div>
+      <div class="an-card" style="border-left-color:#a51c30">
+        <div class="an-card-val" style="color:#a51c30">~${num(totalPov150)}</div>
+        <div class="an-card-label">Below 150% Poverty</div>
+        <div class="an-card-sub">${dispPop > 0 ? Math.round(totalPov150 / dispPop * 100) : 0}%</div>
+      </div>
+    </div>
     ` : ""}
+    <div class="an-grid-2">
+      <div class="an-card" style="border-left-color:#e07830">
+        <div class="an-card-val" style="color:#e07830">~${num(dispElderly)}</div>
+        <div class="an-card-label">Age 65+</div>
+        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispElderly / dispPop * 100) : 0}%</div>
+      </div>
+      <div class="an-card" style="border-left-color:#7b6cb7">
+        <div class="an-card-val" style="color:#7b6cb7">~${num(dispDisabled)}</div>
+        <div class="an-card-label">Disabled</div>
+        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispDisabled / dispPop * 100) : 0}%</div>
+      </div>
+    </div>
+    ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false)}
+    ${bar("Household", avg(validSVI, "rpl_theme2"), false)}
+    ${bar("Minority", avg(validSVI, "rpl_theme3"), false)}
+    ${bar("Housing", avg(validSVI, "rpl_theme4"), false)}`;
+    })() : ""}
 
     ${validNRI.length ? `
-    <details class="tp-acc">
-      <summary class="tp-section">NRI Hazard Risk</summary>
-      ${bar("Overall risk score", avgNriScore, true)}
-      ${bar("Hurricane", avg(validNRI, "hrcn_risks"), true)}
-      ${bar("Flood (max coastal/inland)", avg(validNRI.map(r => ({ flood: flood(r) })), "flood"), true)}
-      ${bar("Tornado", avg(validNRI, "trnd_risks"), true)}
-      ${bar("Wildfire", avg(validNRI, "wfir_risks"), true)}
-      ${kv("Expected annual loss", `<strong>${compactMoney(totalEAL)}</strong>`)}
-    </details>
+    <div class="an-section-head">Hazard Risk (NRI)</div>
+    <div class="an-grid-2" style="margin-top:6px">
+      <div class="an-card" style="border-left-color:${avgNriScore >= 60 ? '#e05070' : avgNriScore >= 40 ? '#e07830' : '#d4a020'}">
+        <div class="an-card-val" style="color:${avgNriScore >= 60 ? '#e05070' : avgNriScore >= 40 ? '#e07830' : '#d4a020'}">${Math.round(avgNriScore)}</div>
+        <div class="an-card-label">Risk Score</div>
+      </div>
+      <div class="an-card" style="border-left-color:#a51c30">
+        <div class="an-card-val" style="color:#a51c30">${compactMoney(totalEAL)}</div>
+        <div class="an-card-label">Annual Loss</div>
+      </div>
+    </div>
+    ${bar("Hurricane", avg(validNRI, "hrcn_risks"), true)}
+    ${bar("Flood", avg(validNRI.map(r => ({ flood: flood(r) })), "flood"), true)}
+    ${bar("Tornado", avg(validNRI, "trnd_risks"), true)}
+    ${bar("Wildfire", avg(validNRI, "wfir_risks"), true)}
     ` : ""}
 
     ${aliceRows.length ? (() => {
       const cards = aliceRows.map(r => {
         const pop = r.population || 0;
+        const pctPov = r.pct_poverty || 0;
+        const pctAlice = r.pct_alice || 0;
         const pct = r.pct_struggling || 0;
         const struggling = Math.round(pop * (pct / 100));
+        const povCount = Math.round(pop * (pctPov / 100));
+        const aliceCount = Math.round(pop * (pctAlice / 100));
         const name = r.county_name || (r.fips_5 ? `County ${r.fips_5}` : "County");
         const color = pct >= 35 ? "#e05070" : pct >= 25 ? "#e07830" : pct >= 15 ? "#a16207" : "#78aa28";
-        return `<div class="cc-card">
-          <div class="cc-head"><span class="cc-name">${name}</span><span class="cc-lead" style="color:${color}">${Math.round(pct)}%</span></div>
-          <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${Math.min(pct, 100)}%;background:${color}"></div></div>
-          <div class="cc-stats">
-            <span><strong>${compactMoney(struggling).replace("$","")}</strong> struggling</span><span class="sep">·</span>
-            <span>of <strong>${compactMoney(pop).replace("$","")}</strong> residents</span><span class="sep">·</span>
-            <span>median <strong>$${num(r.median_income)}</strong></span>
+        return `
+        <div class="an-section-head">Economic Hardship — ${name}</div>
+        <div class="an-grid-3" style="margin-top:6px">
+          <div class="an-card" style="border-left-color:#a51c30">
+            <div class="an-card-val" style="color:#a51c30">${Math.round(pctPov)}%</div>
+            <div class="an-card-label">Poverty</div>
+            <div class="an-card-sub">${num(povCount)}</div>
           </div>
-        </div>`;
+          <div class="an-card" style="border-left-color:#e07830">
+            <div class="an-card-val" style="color:#e07830">${Math.round(pctAlice)}%</div>
+            <div class="an-card-label">ALICE</div>
+            <div class="an-card-sub">${num(aliceCount)}</div>
+          </div>
+          <div class="an-card" style="border-left-color:${color}">
+            <div class="an-card-val" style="color:${color}">${Math.round(pct)}%</div>
+            <div class="an-card-label">Combined</div>
+            <div class="an-card-sub">${num(struggling)}</div>
+          </div>
+        </div>
+        ${kv("Median Income", `<strong style="color:#16a34a">$${num(r.median_income)}</strong>`)}`;
       }).join("");
-      return `<details class="tp-acc"><summary class="tp-section">Economic Hardship (ALICE)</summary>${cards}</details>`;
+      return cards;
     })() : ""}
 
     ${femaBlock}
@@ -2504,11 +2537,11 @@ function reinitMapLayers() {
   }
   if (!map.getSource("svi-tracts")) {
     map.addSource("svi-tracts", { type: "geojson", data: EMPTY_FC });
-    map.addLayer({ id: "svi-fill", type: "fill", source: "svi-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["to-number", ["get", "rpl"], -1], 0.75], "rgba(192,57,43,0.65)", [">=", ["to-number", ["get", "rpl"], -1], 0.50], "rgba(231,76,60,0.65)", [">=", ["to-number", ["get", "rpl"], -1], 0.25], "rgba(243,156,18,0.65)", [">=", ["to-number", ["get", "rpl"], -1], 0], "rgba(249,231,159,0.65)", "rgba(204,204,204,0.55)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
+    map.addLayer({ id: "svi-fill", type: "fill", source: "svi-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["to-number", ["get", "rpl"], -1], 0.75], "rgba(192,57,43,0.4)", [">=", ["to-number", ["get", "rpl"], -1], 0.50], "rgba(231,76,60,0.4)", [">=", ["to-number", ["get", "rpl"], -1], 0.25], "rgba(243,156,18,0.4)", [">=", ["to-number", ["get", "rpl"], -1], 0], "rgba(249,231,159,0.4)", "rgba(204,204,204,0.3)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
   }
   if (!map.getSource("nri-tracts")) {
     map.addSource("nri-tracts", { type: "geojson", data: EMPTY_FC });
-    map.addLayer({ id: "nri-fill", type: "fill", source: "nri-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["to-number", ["get", "score"], -1], 80], "rgba(123,45,139,0.65)", [">=", ["to-number", ["get", "score"], -1], 60], "rgba(192,57,43,0.65)", [">=", ["to-number", ["get", "score"], -1], 40], "rgba(230,126,34,0.65)", [">=", ["to-number", ["get", "score"], -1], 20], "rgba(241,196,15,0.65)", "rgba(236,240,241,0.65)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
+    map.addLayer({ id: "nri-fill", type: "fill", source: "nri-tracts", layout: { visibility: "none" }, paint: { "fill-color": ["case", [">=", ["to-number", ["get", "score"], -1], 80], "rgba(123,45,139,0.4)", [">=", ["to-number", ["get", "score"], -1], 60], "rgba(192,57,43,0.4)", [">=", ["to-number", ["get", "score"], -1], 40], "rgba(230,126,34,0.4)", [">=", ["to-number", ["get", "score"], -1], 20], "rgba(241,196,15,0.4)", "rgba(236,240,241,0.4)"], "fill-outline-color": "rgba(80,80,80,0.25)" } });
   }
   if (!map.getSource("fires")) {
     map.addSource("fires", { type: "geojson", data: EMPTY_FC });
@@ -2534,11 +2567,11 @@ function reinitMapLayers() {
   }
   if (!map.getSource("parcel-mask")) {
     map.addSource("parcel-mask", { type: "geojson", data: EMPTY_FC });
-    map.addLayer({ id: "parcel-mask-fill", type: "fill", source: "parcel-mask", layout: { visibility: "none" }, paint: { "fill-color": "#f5f3f0", "fill-opacity": 0.82 } });
+    map.addLayer({ id: "parcel-mask-fill", type: "fill", source: "parcel-mask", layout: { visibility: "none" }, paint: { "fill-color": "#f5f3f0", "fill-opacity": 0.55 } });
   }
   if (!map.getSource("analysis-tracts")) {
     map.addSource("analysis-tracts", { type: "geojson", data: EMPTY_FC });
-    map.addLayer({ id: "analysis-tracts-fill", type: "fill", source: "analysis-tracts", layout: { visibility: "none" }, paint: { "fill-color": "#e67e22", "fill-opacity": 0.25 } });
+    map.addLayer({ id: "analysis-tracts-fill", type: "fill", source: "analysis-tracts", layout: { visibility: "none" }, paint: { "fill-color": "#e67e22", "fill-opacity": 0.08 } });
     map.addLayer({ id: "analysis-tracts-outline", type: "line", source: "analysis-tracts", layout: { visibility: "none" }, paint: { "line-color": "#e67e22", "line-width": 2, "line-dasharray": [3, 2] } });
   }
 
