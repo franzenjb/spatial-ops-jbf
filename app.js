@@ -206,8 +206,8 @@ const initStyle = initBm.style || initBm.url;
 const map = new maplibregl.Map({
   container: "map",
   style: initStyle,
-  center: [-82.5, 28.1],
-  zoom: 6,
+  center: [-82.64, 27.77],
+  zoom: 12,
   maxPitch: 0,
   dragRotate: false,
 });
