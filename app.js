@@ -1473,103 +1473,109 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
   el.innerHTML = `
     ${hero}
 
-    <details open class="tp-acc">
-      <summary class="tp-section" style="margin-top:0">Population & Response</summary>
-      ${dispPop > 0 ? `
-      <div class="an-stat-row">
-        <div class="an-stat pop">
-          <div class="an-stat-val">~${num(dispPop)}</div>
-          <div class="an-stat-label">Population</div>
-          ${weightedPop && totalPop !== dispPop ? `<div class="an-stat-sub">${num(totalPop)} in tracts</div>` : ""}
-        </div>
-        <div class="an-stat elder">
-          <div class="an-stat-val">~${num(dispElderly)}</div>
-          <div class="an-stat-label">Age 65+</div>
-          ${dispPop > 0 ? `<div class="an-stat-sub">${Math.round(dispElderly / dispPop * 100)}%</div>` : ""}
-        </div>
-        <div class="an-stat disabled">
-          <div class="an-stat-val">~${num(dispDisabled)}</div>
-          <div class="an-stat-label">Disabled</div>
-          ${dispPop > 0 ? `<div class="an-stat-sub">${Math.round(dispDisabled / dispPop * 100)}%</div>` : ""}
-        </div>
+    <div class="an-section-head">Population & Response</div>
+    ${dispPop > 0 ? `
+    <div class="an-pop-hero">
+      <div class="an-pop-hero-val">~${num(dispPop)}</div>
+      <div class="an-pop-hero-label">Estimated Population</div>
+      ${weightedPop && totalPop !== dispPop ? `<div class="an-pop-hero-sub">${num(totalPop)} across ${validSVI.length} census tracts</div>` : ""}
+    </div>
+    <div class="an-grid-2">
+      <div class="an-card" style="border-left-color:#e07830">
+        <div class="an-card-val" style="color:#e07830">${dispPop > 0 ? Math.round(dispElderly / dispPop * 100) + '%' : '—'}</div>
+        <div class="an-card-label">Age 65+</div>
+        <div class="an-card-sub">~${num(dispElderly)} people</div>
       </div>
-      ${weightedPop ? `<div style="font-size:9px;color:#888;text-align:center;margin:-4px 0 6px">Area-weighted estimate · ${validSVI.length} census tract${validSVI.length === 1 ? "" : "s"}</div>` : ""}
-      ` : ""}
-      <div class="an-response">
-        <div class="an-badge fires">
-          <div class="an-badge-val">${firesIn.length}</div>
-          <div class="an-badge-label">Fires</div>
-          ${noRC > 0 ? `<div style="font-size:9px;color:#a51c30;font-weight:600">${noRC} no RC</div>` : ""}
-        </div>
-        <div class="an-badge shelters">
-          <div class="an-badge-val">${sheltsIn.length}</div>
-          <div class="an-badge-label">Shelters</div>
-        </div>
-        <div class="an-badge vols">
-          <div class="an-badge-val">${volsIn.length}</div>
-          <div class="an-badge-label">DAT Vols</div>
-        </div>
+      <div class="an-card" style="border-left-color:#7b6cb7">
+        <div class="an-card-val" style="color:#7b6cb7">${dispPop > 0 ? Math.round(dispDisabled / dispPop * 100) + '%' : '—'}</div>
+        <div class="an-card-label">Disabled</div>
+        <div class="an-card-sub">~${num(dispDisabled)} people</div>
       </div>
-    </details>
+    </div>
+    ` : ""}
+    <div class="an-response-row">
+      <div class="an-resp-chip" style="border-left-color:#a51c30">
+        <div class="an-resp-chip-val" style="color:#a51c30">${firesIn.length}</div>
+        <div class="an-resp-chip-label">Fires</div>
+        ${noRC > 0 ? `<div class="an-resp-chip-sub">${noRC} no RC</div>` : ""}
+      </div>
+      <div class="an-resp-chip" style="border-left-color:#2563eb">
+        <div class="an-resp-chip-val" style="color:#2563eb">${sheltsIn.length}</div>
+        <div class="an-resp-chip-label">Shelters</div>
+      </div>
+      <div class="an-resp-chip" style="border-left-color:#16a34a">
+        <div class="an-resp-chip-val" style="color:#16a34a">${volsIn.length}</div>
+        <div class="an-resp-chip-label">DAT Vols</div>
+      </div>
+    </div>
 
     ${parcelStats && parcelStats.total_parcels > 0 ? (() => {
       const p = parcelStats;
       const resPct = Math.round(p.residential / p.total_parcels * 100);
       const comPct = 100 - resPct;
-      const pre70Pct = p.pre_1970 && p.total_parcels ? Math.round(p.pre_1970 / p.total_parcels * 100) : 0;
-      const post00Pct = p.post_2000 && p.total_parcels ? Math.round(p.post_2000 / p.total_parcels * 100) : 0;
-      const midPct = 100 - pre70Pct - post00Pct;
       return `
-    <details open class="tp-acc">
-      <summary class="tp-section">Property Data (Florida Parcels)</summary>
-      <div class="an-prop-hero">
-        <div class="an-prop-card">
-          <div class="an-prop-card-val">${num(p.total_parcels)}</div>
-          <div class="an-prop-card-label">Parcels</div>
-        </div>
-        <div class="an-prop-card">
-          <div class="an-prop-card-val">${compactMoney(p.total_assessed)}</div>
-          <div class="an-prop-card-label">Total Value</div>
-        </div>
+    <div class="an-section-head">Property Data</div>
+    <div class="an-grid-2">
+      <div class="an-card" style="border-left-color:#a51c30">
+        <div class="an-card-val" style="color:#a51c30">${num(p.total_parcels)}</div>
+        <div class="an-card-label">Parcels</div>
       </div>
-      <div class="tp-subhead">Composition</div>
-      <div class="an-comp-bar">
-        <div class="an-comp-seg res" style="width:${resPct}%">${resPct}%</div>
-        <div class="an-comp-seg com" style="width:${comPct}%">${comPct > 5 ? comPct + '%' : ''}</div>
+      <div class="an-card" style="border-left-color:#2563eb">
+        <div class="an-card-val" style="color:#2563eb">${compactMoney(p.total_assessed)}</div>
+        <div class="an-card-label">Total Value</div>
       </div>
-      <div class="an-comp-legend">
-        <span><span class="an-comp-dot" style="background:#2563eb"></span>Residential ${num(p.residential)}</span>
-        <span><span class="an-comp-dot" style="background:#e07830"></span>Commercial ${num(p.commercial)}</span>
+    </div>
+    <div class="an-comp-bar">
+      <div class="an-comp-seg" style="width:${resPct}%;background:#2563eb">${resPct}%</div>
+      <div class="an-comp-seg" style="width:${comPct}%;background:#e07830">${comPct > 5 ? comPct + '%' : ''}</div>
+    </div>
+    <div class="an-comp-legend">
+      <span><span class="an-comp-dot" style="background:#2563eb"></span>Residential ${num(p.residential)}</span>
+      <span><span class="an-comp-dot" style="background:#e07830"></span>Commercial ${num(p.commercial)}</span>
+    </div>
+    <div class="an-grid-3">
+      <div class="an-card" style="border-left-color:#16a34a">
+        <div class="an-card-val" style="color:#16a34a;font-size:20px">${compactMoney(p.avg_assessed)}</div>
+        <div class="an-card-label">Average</div>
       </div>
-      <div class="tp-subhead">Valuation</div>
-      <div class="an-val-row">
-        <div class="an-val-card"><div class="an-val-card-val">${compactMoney(p.avg_assessed)}</div><div class="an-val-card-label">Average</div></div>
-        <div class="an-val-card"><div class="an-val-card-val">${compactMoney(p.median_assessed)}</div><div class="an-val-card-label">Median</div></div>
-        <div class="an-val-card"><div class="an-val-card-val">${compactMoney(p.total_assessed)}</div><div class="an-val-card-label">Total</div></div>
+      <div class="an-card" style="border-left-color:#16a34a">
+        <div class="an-card-val" style="color:#16a34a;font-size:20px">${compactMoney(p.median_assessed)}</div>
+        <div class="an-card-label">Median</div>
       </div>
-      <div class="tp-subhead">Building Age</div>
-      <div class="an-age-bar">
-        <div class="an-age-seg" style="flex:${pre70Pct || 1}">
-          <div class="an-age-seg-val">${num(p.pre_1970)}</div>
-          <div class="an-age-seg-label">Pre-1970</div>
-        </div>
-        <div class="an-age-seg" style="flex:${midPct || 1}">
-          <div class="an-age-seg-val">${num(p.total_parcels - (p.pre_1970 || 0) - (p.post_2000 || 0))}</div>
-          <div class="an-age-seg-label">1970–2000</div>
-        </div>
-        <div class="an-age-seg" style="flex:${post00Pct || 1}">
-          <div class="an-age-seg-val">${num(p.post_2000)}</div>
-          <div class="an-age-seg-label">Post-2000</div>
-        </div>
+      <div class="an-card" style="border-left-color:#16a34a">
+        <div class="an-card-val" style="color:#16a34a;font-size:20px">${compactMoney(p.total_assessed)}</div>
+        <div class="an-card-label">Total</div>
       </div>
-      <div style="text-align:center;font-size:10px;color:#666;margin:-2px 0 6px">Avg year built: <strong>${p.avg_year_built}</strong></div>
-      <div class="tp-subhead">Scale & Value</div>
-      <div class="an-val-row">
-        <div class="an-val-card"><div class="an-val-card-val">${num(p.avg_sqft)}</div><div class="an-val-card-label">Avg Sq Ft</div></div>
-        <div class="an-val-card"><div class="an-val-card-val">${int(p.total_acres)}</div><div class="an-val-card-label">Total Acres</div></div>
-        <div class="an-val-card"><div class="an-val-card-val">${num(p.over_500k)}</div><div class="an-val-card-label">Over $500K</div></div>
+    </div>
+    <div class="an-grid-3">
+      <div class="an-card" style="border-left-color:#d4a020">
+        <div class="an-card-val" style="color:#d4a020;font-size:20px">${num(p.pre_1970)}</div>
+        <div class="an-card-label">Pre-1970</div>
       </div>
-    </details>`;
+      <div class="an-card" style="border-left-color:#d4a020">
+        <div class="an-card-val" style="color:#d4a020;font-size:20px">${num(p.total_parcels - (p.pre_1970 || 0) - (p.post_2000 || 0))}</div>
+        <div class="an-card-label">1970–2000</div>
+      </div>
+      <div class="an-card" style="border-left-color:#d4a020">
+        <div class="an-card-val" style="color:#d4a020;font-size:20px">${num(p.post_2000)}</div>
+        <div class="an-card-label">Post-2000</div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:11px;color:#333;margin:-2px 0 8px">Avg year built: <strong>${p.avg_year_built}</strong></div>
+    <div class="an-grid-3">
+      <div class="an-card" style="border-left-color:#5a7a99">
+        <div class="an-card-val" style="color:#5a7a99;font-size:20px">${num(p.avg_sqft)}</div>
+        <div class="an-card-label">Avg Sq Ft</div>
+      </div>
+      <div class="an-card" style="border-left-color:#5a7a99">
+        <div class="an-card-val" style="color:#5a7a99;font-size:20px">${int(p.total_acres)}</div>
+        <div class="an-card-label">Acres</div>
+      </div>
+      <div class="an-card" style="border-left-color:#a51c30">
+        <div class="an-card-val" style="color:#a51c30;font-size:20px">${num(p.over_500k)}</div>
+        <div class="an-card-label">Over $500K</div>
+      </div>
+    </div>`;
     })() : ""}
 
     ${validSVI.length ? `
