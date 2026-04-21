@@ -996,8 +996,24 @@ window.toggleMapLayer = (type) => {
 };
 
 // ── Parcel RPC analysis ─────────────────────────────────────────────────────
-async function analyzeParcelsByTracts(tractList, bbox) {
+async function analyzeParcelsByTracts(tractList, bbox, analysisGeom) {
   try {
+    // When we have analysis geometry, POST polygon for accurate point-in-polygon filtering
+    if (analysisGeom) {
+      const geom = analysisGeom.type === "Feature" ? analysisGeom.geometry : analysisGeom;
+      const ring = geom.type === "Polygon" ? geom.coordinates[0] : geom.coordinates[0];
+      const county = document.getElementById("parcel-county")?.value || "";
+      const body = { polygon: ring };
+      if (county) body.county = county;
+      const resp = await fetch(`${PARCEL_API}/api/stats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) return null;
+      return resp.json();
+    }
+    // Fallback: bbox-only
     const params = [];
     if (bbox) params.push(`xmin=${bbox.xmin}&ymin=${bbox.ymin}&xmax=${bbox.xmax}&ymax=${bbox.ymax}`);
     const county = document.getElementById("parcel-county")?.value || "";
@@ -1145,7 +1161,7 @@ async function runCorridorAnalysis(lineGeom) {
     ymax: Math.max(...coords.map(c => c[1])) + threshDeg,
   };
 
-  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Corridor", corrBbox);
+  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Corridor", corrBbox, buffered);
 }
 
 async function runRadiusAnalysis(center, miles) {
@@ -1187,7 +1203,7 @@ async function runRadiusAnalysis(center, miles) {
     xmax: center.lng + threshDeg / lonScale, ymax: center.lat + threshDeg,
   };
 
-  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Radius", radBbox);
+  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Radius", radBbox, circleGeoJSON);
 }
 
 async function runPolygonAnalysis(polyGeom) {
@@ -1224,10 +1240,10 @@ async function runPolygonAnalysis(polyGeom) {
     xmax: Math.max(...ring.map(c => c[0])), ymax: Math.max(...ring.map(c => c[1])),
   };
 
-  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Polygon", polyBbox);
+  await fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, "Polygon", polyBbox, polyFeature);
 }
 
-async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, analysisType, bbox) {
+async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, analysisType, bbox, analysisGeom) {
   let sviRows = [], nriRows = [], aliceRows = [], femaRows = [];
   let parcelStats = null;
 
@@ -1283,23 +1299,61 @@ async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, an
         femaRows = (f || []).map(row => ({ ...row, county_name: nameByFips[row.fips_5] || null }));
       })
     );
-    fetchPromises.push(analyzeParcelsByTracts(tractGeoids, bbox).then(r => { parcelStats = r; }));
+    fetchPromises.push(analyzeParcelsByTracts(tractGeoids, bbox, analysisGeom).then(r => { parcelStats = r; }));
   }
 
   await Promise.all(fetchPromises);
-  renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, aliceRows, femaRows, analysisType, parcelStats);
+
+  // Compute area-weighted population estimates
+  let weightedPop = null;
+  if (analysisGeom && sviRows.length && _tractFeatures) {
+    const geoidToTract = new Map();
+    _tractFeatures.forEach(f => { if (f.properties?.GEOID) geoidToTract.set(f.properties.GEOID, f); });
+    let wPop = 0, wElderly = 0, wDisabled = 0;
+    const analysisFeature = analysisGeom.type === "Feature" ? analysisGeom
+      : { type: "Feature", geometry: analysisGeom, properties: {} };
+    for (const svi of sviRows) {
+      const geoid = svi.fips || svi.GEOID;
+      const tract = geoidToTract.get(geoid);
+      let ratio = 1;
+      if (tract) {
+        try {
+          const tractFeature = tract.type === "Feature" ? tract
+            : { type: "Feature", geometry: tract.geometry, properties: tract.properties || {} };
+          const clipped = turf.intersect(turf.featureCollection([analysisFeature, tractFeature]));
+          if (clipped) {
+            const clippedArea = turf.area(clipped);
+            const tractArea = turf.area(tractFeature);
+            if (tractArea > 0) ratio = Math.min(clippedArea / tractArea, 1);
+          } else {
+            ratio = 0;
+          }
+        } catch (e) { /* degenerate geometry — fall back to full count */ }
+      }
+      wPop += (svi.e_totpop || 0) * ratio;
+      wElderly += (svi.e_age65 || 0) * ratio;
+      wDisabled += (svi.e_disabl || 0) * ratio;
+    }
+    weightedPop = { pop: Math.round(wPop), elderly: Math.round(wElderly), disabled: Math.round(wDisabled) };
+  }
+
+  renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, aliceRows, femaRows, analysisType, parcelStats, weightedPop);
   showResults(volsIn, "Volunteers in " + analysisType);
   document.getElementById("corridor-clear-btn").style.display = "";
   if (typeof window.openPanel === "function") window.openPanel("corridor");
 }
 
-function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, aliceRows, femaRows, analysisType, parcelStats) {
+function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, aliceRows, femaRows, analysisType, parcelStats, weightedPop) {
   const noRC = firesIn.filter(f => f.rc_responded === "no").length;
   const validSVI = sviRows.filter(r => r.rpl_themes >= 0);
   const avgRpl   = avg(validSVI, "rpl_themes");
   const totalPop = validSVI.reduce((s, r) => s + (r.e_totpop || 0), 0);
   const totalElderly = validSVI.reduce((s, r) => s + (r.e_age65 || 0), 0);
   const totalDisabled = validSVI.reduce((s, r) => s + (r.e_disabl || 0), 0);
+  // Use area-weighted estimates when available
+  const dispPop = weightedPop ? weightedPop.pop : totalPop;
+  const dispElderly = weightedPop ? weightedPop.elderly : totalElderly;
+  const dispDisabled = weightedPop ? weightedPop.disabled : totalDisabled;
   const validNRI = nriRows.filter(r => r.risk_score !== null);
   const flood = (r) => Math.max(r.cfld_risks ?? 0, r.ifld_risks ?? 0);
   const avgNriScore = validNRI.length ? avg(validNRI, "risk_score") : null;
@@ -1315,7 +1369,7 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
   document.getElementById("stat-no-response").textContent = noRC;
   document.getElementById("stat-shelters").textContent    = sheltsIn.length;
   document.getElementById("stat-volunteers").textContent  = volsIn.length;
-  document.querySelector("#top-bar-sub").textContent      = `${analysisType} view — ${totalPop.toLocaleString()} residents`;
+  document.querySelector("#top-bar-sub").textContent      = `${analysisType} view — ~${dispPop.toLocaleString()} residents${weightedPop ? ' (area-weighted)' : ''}`;
 
   const chapterMap = {};
   firesIn.forEach(f => { if (f.chapter) chapterMap[f.chapter] = (chapterMap[f.chapter] || 0) + 1; });
@@ -1413,9 +1467,9 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
 
     <details open class="tp-acc">
       <summary class="tp-section" style="margin-top:0">Population & Response</summary>
-      ${totalPop > 0    ? kv("Estimated population", `<strong>${num(totalPop)}</strong>`) : ""}
-      ${totalElderly > 0 ? kv("Age 65+", `<strong>${num(totalElderly)}</strong>`) : ""}
-      ${totalDisabled > 0 ? kv("Disabled", `<strong>${num(totalDisabled)}</strong>`) : ""}
+      ${dispPop > 0 ? kv("Estimated population", `<strong>~${num(dispPop)}</strong>${weightedPop && totalPop !== dispPop ? ` <span style="font-size:11px;color:#666">(${validSVI.length} tracts touched: ${num(totalPop)})</span>` : ""}`) : ""}
+      ${dispElderly > 0 ? kv("Age 65+", `<strong>~${num(dispElderly)}</strong>${weightedPop && totalElderly !== dispElderly ? ` <span style="font-size:11px;color:#666">(tracts: ${num(totalElderly)})</span>` : ""}`) : ""}
+      ${dispDisabled > 0 ? kv("Disabled", `<strong>~${num(dispDisabled)}</strong>${weightedPop && totalDisabled !== dispDisabled ? ` <span style="font-size:11px;color:#666">(tracts: ${num(totalDisabled)})</span>` : ""}`) : ""}
       ${kv("Fires", `<strong>${firesIn.length}</strong> (${noRC} no RC response)`)}
       ${kv("Shelters", `<strong>${sheltsIn.length}</strong>`)}
       ${kv("DAT Volunteers", `<strong>${volsIn.length}</strong>`)}
@@ -1448,7 +1502,7 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${validSVI.length ? `
     <details open class="tp-acc">
       <summary class="tp-section">Social Vulnerability (SVI)</summary>
-      <div class="tp-caption" style="text-align:left;margin:-2px 0 6px">Percentile rank vs. all US tracts · ${validSVI.length} tract${validSVI.length === 1 ? "" : "s"} · ${num(totalPop)} residents in scope</div>
+      <div class="tp-caption" style="text-align:left;margin:-2px 0 6px">Percentile rank vs. all US tracts · ${validSVI.length} tract${validSVI.length === 1 ? "" : "s"} · ~${num(dispPop)} residents${weightedPop ? ' (area-weighted)' : ''}</div>
       ${bar("Overall vulnerability", avgRpl, false)}
       ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false)}
       ${bar("Household", avg(validSVI, "rpl_theme2"), false)}
