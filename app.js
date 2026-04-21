@@ -1497,10 +1497,66 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
       </div>
     </div>
 
+    ${validSVI.length ? (() => {
+      const totalPov150 = validSVI.reduce((s, r) => s + (r.e_pov150 || 0), 0);
+      const sviOverall = avgRpl != null ? Math.round(avgRpl * 100) : null;
+      const sviColor = sviOverall >= 75 ? '#e05070' : sviOverall >= 50 ? '#e07830' : sviOverall >= 25 ? '#d4a020' : '#78aa28';
+      const povPct = dispPop > 0 ? Math.round(totalPov150 / dispPop * 100) : 0;
+      const elderPct = dispPop > 0 ? Math.round(dispElderly / dispPop * 100) : 0;
+      const disabPct = dispPop > 0 ? Math.round(dispDisabled / dispPop * 100) : 0;
+      const themes = [
+        { key: "rpl_theme1", label: "Socioeconomic", color: "#d4a020" },
+        { key: "rpl_theme2", label: "Household", color: "#e07830" },
+        { key: "rpl_theme3", label: "Minority", color: "#2563eb" },
+        { key: "rpl_theme4", label: "Housing", color: "#7b6cb7" },
+      ];
+      const hbar = (label, pct, count, color) => `
+        <div style="margin:5px 0">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+            <span style="font-size:11px;font-weight:700;color:#333">${label}</span>
+            <span style="font-size:12px;font-weight:800;color:${color}">~${num(count)} <span style="font-weight:600;font-size:10px;color:#888">(${pct}%)</span></span>
+          </div>
+          <div style="height:10px;background:#eee;border-radius:5px;overflow:hidden">
+            <div style="width:${Math.max(pct, 2)}%;height:100%;background:${color};border-radius:5px"></div>
+          </div>
+        </div>`;
+      return `
+    <div class="an-section-head">Social Vulnerability</div>
+    ${sviOverall != null ? `
+    <div class="an-pop-hero">
+      <div class="an-pop-hero-val" style="color:${sviColor}">${sviOverall}%</div>
+      <div class="an-pop-hero-label">Overall SVI · ~${num(dispPop)} people</div>
+      <div class="an-pop-hero-sub">${sviOverall >= 75 ? 'Very High' : sviOverall >= 50 ? 'High' : sviOverall >= 25 ? 'Moderate' : 'Low'} vulnerability</div>
+    </div>` : ""}
+    ${hbar("Below 150% Poverty", povPct, totalPov150, "#a51c30")}
+    ${hbar("Age 65+", elderPct, dispElderly, "#e07830")}
+    ${hbar("Disabled", disabPct, dispDisabled, "#7b6cb7")}
+    <div style="margin-top:8px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#888;margin-bottom:4px">Vulnerability Themes (CDC Percentile)</div>
+      ${themes.map(t => {
+        const v = avg(validSVI, t.key);
+        const pctVal = v != null ? Math.round(v * 100) : 0;
+        return `<div style="display:flex;align-items:center;gap:6px;margin:3px 0">
+          <span style="font-size:10px;width:80px;color:#555;font-weight:600">${t.label}</span>
+          <div style="flex:1;height:8px;background:#eee;border-radius:4px;overflow:hidden">
+            <div style="width:${pctVal}%;height:100%;background:${t.color};border-radius:4px"></div>
+          </div>
+          <span style="font-size:11px;font-weight:700;width:30px;text-align:right;color:${t.color}">${pctVal}%</span>
+        </div>`;
+      }).join("")}
+    </div>`;
+    })() : ""}
+
     ${parcelStats && parcelStats.total_parcels > 0 ? (() => {
       const p = parcelStats;
       const resPct = Math.round(p.residential / p.total_parcels * 100);
       const comPct = 100 - resPct;
+      const pre70 = p.pre_1970 || 0;
+      const post00 = p.post_2000 || 0;
+      const mid = p.total_parcels - pre70 - post00;
+      const pre70Pct = Math.round(pre70 / p.total_parcels * 100);
+      const midPct = Math.round(mid / p.total_parcels * 100);
+      const post00Pct = 100 - pre70Pct - midPct;
       return `
     <div class="an-section-head">Property Data</div>
     <div class="an-grid-2">
@@ -1508,99 +1564,33 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
         <div class="an-card-val" style="color:#a51c30">${num(p.total_parcels)}</div>
         <div class="an-card-label">Parcels</div>
       </div>
-      <div class="an-card" style="border-left-color:#2563eb">
-        <div class="an-card-val" style="color:#2563eb">${compactMoney(p.total_assessed)}</div>
-        <div class="an-card-label">Total Value</div>
+      <div class="an-card" style="border-left-color:#16a34a">
+        <div class="an-card-val" style="color:#16a34a">${compactMoney(p.avg_assessed)}</div>
+        <div class="an-card-label">Avg Value</div>
+        <div class="an-card-sub">median ${compactMoney(p.median_assessed)}</div>
       </div>
     </div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#888;margin:8px 0 3px">Composition</div>
     <div class="an-comp-bar">
-      <div class="an-comp-seg" style="width:${resPct}%;background:#2563eb">${resPct}%</div>
+      <div class="an-comp-seg" style="width:${resPct}%;background:#2563eb">${resPct}% Res</div>
       <div class="an-comp-seg" style="width:${Math.max(comPct, 8)}%;background:#e07830">${comPct}%</div>
     </div>
     <div class="an-comp-legend">
       <span><span class="an-comp-dot" style="background:#2563eb"></span>Residential ${num(p.residential)}</span>
       <span><span class="an-comp-dot" style="background:#e07830"></span>Commercial ${num(p.commercial)}</span>
     </div>
-    <div class="an-grid-3">
-      <div class="an-card" style="border-left-color:#16a34a">
-        <div class="an-card-val" style="color:#16a34a">${compactMoney(p.avg_assessed)}</div>
-        <div class="an-card-label">Average</div>
-      </div>
-      <div class="an-card" style="border-left-color:#16a34a">
-        <div class="an-card-val" style="color:#16a34a">${compactMoney(p.median_assessed)}</div>
-        <div class="an-card-label">Median</div>
-      </div>
-      <div class="an-card" style="border-left-color:#16a34a">
-        <div class="an-card-val" style="color:#16a34a">${compactMoney(p.total_assessed)}</div>
-        <div class="an-card-label">Total</div>
-      </div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#888;margin:6px 0 3px">Building Age · avg ${p.avg_year_built}</div>
+    <div class="an-comp-bar">
+      <div class="an-comp-seg" style="width:${Math.max(pre70Pct, 5)}%;background:#a51c30">${pre70Pct > 8 ? pre70Pct + '%' : ''}</div>
+      <div class="an-comp-seg" style="width:${Math.max(midPct, 5)}%;background:#d4a020">${midPct > 8 ? midPct + '%' : ''}</div>
+      <div class="an-comp-seg" style="width:${Math.max(post00Pct, 5)}%;background:#16a34a">${post00Pct > 8 ? post00Pct + '%' : ''}</div>
     </div>
-    <div class="an-grid-3">
-      <div class="an-card" style="border-left-color:#d4a020">
-        <div class="an-card-val" style="color:#d4a020">${num(p.pre_1970)}</div>
-        <div class="an-card-label">Pre-1970</div>
-      </div>
-      <div class="an-card" style="border-left-color:#d4a020">
-        <div class="an-card-val" style="color:#d4a020">${num(p.total_parcels - (p.pre_1970 || 0) - (p.post_2000 || 0))}</div>
-        <div class="an-card-label">1970–2000</div>
-      </div>
-      <div class="an-card" style="border-left-color:#d4a020">
-        <div class="an-card-val" style="color:#d4a020">${num(p.post_2000)}</div>
-        <div class="an-card-label">Post-2000</div>
-      </div>
-    </div>
-    <div style="text-align:center;font-size:10px;color:#555;margin:-2px 0 4px">Avg year built: <strong>${p.avg_year_built}</strong></div>
-    <div class="an-grid-3">
-      <div class="an-card" style="border-left-color:#5a7a99">
-        <div class="an-card-val" style="color:#5a7a99">${num(p.avg_sqft)}</div>
-        <div class="an-card-label">Avg Sq Ft</div>
-      </div>
-      <div class="an-card" style="border-left-color:#5a7a99">
-        <div class="an-card-val" style="color:#5a7a99">${int(p.total_acres)}</div>
-        <div class="an-card-label">Acres</div>
-      </div>
-      <div class="an-card" style="border-left-color:#a51c30">
-        <div class="an-card-val" style="color:#a51c30">${num(p.over_500k)}</div>
-        <div class="an-card-label">Over $500K</div>
-      </div>
+    <div class="an-comp-legend">
+      <span><span class="an-comp-dot" style="background:#a51c30"></span>Pre-1970 ${num(pre70)}</span>
+      <span><span class="an-comp-dot" style="background:#d4a020"></span>70–00 ${num(mid)}</span>
+      <span><span class="an-comp-dot" style="background:#16a34a"></span>Post-2000 ${num(post00)}</span>
     </div>`;
     })() : ""}
-
-    ${validSVI.length ? (() => {
-      const totalPov150 = validSVI.reduce((s, r) => s + (r.e_pov150 || 0), 0);
-      const sviOverall = avgRpl != null ? Math.round(avgRpl * 100) : null;
-      return `
-    <div class="an-section-head">Social Vulnerability</div>
-    ${sviOverall != null ? `
-    <div class="an-grid-2" style="margin-top:6px">
-      <div class="an-card" style="border-left-color:${sviOverall >= 75 ? '#e05070' : sviOverall >= 50 ? '#e07830' : sviOverall >= 25 ? '#d4a020' : '#78aa28'}">
-        <div class="an-card-val" style="color:${sviOverall >= 75 ? '#e05070' : sviOverall >= 50 ? '#e07830' : sviOverall >= 25 ? '#d4a020' : '#78aa28'}">${sviOverall}%</div>
-        <div class="an-card-label">Overall SVI</div>
-        <div class="an-card-sub">~${num(dispPop)} people</div>
-      </div>
-      <div class="an-card" style="border-left-color:#a51c30">
-        <div class="an-card-val" style="color:#a51c30">~${num(totalPov150)}</div>
-        <div class="an-card-label">Below 150% Poverty</div>
-        <div class="an-card-sub">${dispPop > 0 ? Math.round(totalPov150 / dispPop * 100) : 0}%</div>
-      </div>
-    </div>
-    ` : ""}
-    <div class="an-grid-2">
-      <div class="an-card" style="border-left-color:#e07830">
-        <div class="an-card-val" style="color:#e07830">~${num(dispElderly)}</div>
-        <div class="an-card-label">Age 65+</div>
-        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispElderly / dispPop * 100) : 0}%</div>
-      </div>
-      <div class="an-card" style="border-left-color:#7b6cb7">
-        <div class="an-card-val" style="color:#7b6cb7">~${num(dispDisabled)}</div>
-        <div class="an-card-label">Disabled</div>
-        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispDisabled / dispPop * 100) : 0}%</div>
-      </div>
-    </div>
-    ${bar("Socioeconomic", avg(validSVI, "rpl_theme1"), false)}
-    ${bar("Household", avg(validSVI, "rpl_theme2"), false)}
-    ${bar("Minority", avg(validSVI, "rpl_theme3"), false)}
-    ${bar("Housing", avg(validSVI, "rpl_theme4"), false)}`;
     })() : ""}
 
     ${validNRI.length ? `
