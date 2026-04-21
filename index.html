@@ -629,6 +629,58 @@
     .tp-kv-val { font-size: 11px; font-weight: 600; color: #333; }
     .corr-narrative { font-size: 12px; line-height: 1.5; color: #444; margin: 4px 0 8px; padding: 8px 10px; background: #faf7f5; border-left: 3px solid #a51c30; border-radius: 4px; }
     body.dark .corr-narrative { background: rgba(255,255,255,0.04); color: #ccdaeb; }
+    /* Analysis dashboard stat cards */
+    .an-stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+    .an-stat { text-align: center; padding: 10px 4px; background: #faf7f5; border-radius: 6px; border-top: 3px solid #ccc; }
+    .an-stat.pop { border-top-color: #a51c30; }
+    .an-stat.elder { border-top-color: #e07830; }
+    .an-stat.disabled { border-top-color: #7b6cb7; }
+    .an-stat-val { font-size: 20px; font-weight: 800; color: #1a1a1a; line-height: 1.2; }
+    .an-stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #555; margin-top: 2px; }
+    .an-stat-sub { font-size: 9px; color: #888; margin-top: 1px; }
+    body.dark .an-stat { background: rgba(255,255,255,0.06); }
+    body.dark .an-stat-val { color: #e8e8e8; }
+    body.dark .an-stat-label { color: #aab; }
+    body.dark .an-stat-sub { color: #778; }
+    /* Response badges */
+    .an-response { display: flex; gap: 6px; margin: 8px 0; }
+    .an-badge { flex: 1; text-align: center; padding: 8px 4px; background: #faf7f5; border-radius: 6px; }
+    .an-badge-val { font-size: 18px; font-weight: 800; color: #1a1a1a; }
+    .an-badge-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: #666; }
+    .an-badge.fires .an-badge-val { color: #a51c30; }
+    .an-badge.shelters .an-badge-val { color: #2563eb; }
+    .an-badge.vols .an-badge-val { color: #16a34a; }
+    body.dark .an-badge { background: rgba(255,255,255,0.06); }
+    body.dark .an-badge-val { color: #e8e8e8; }
+    body.dark .an-badge-label { color: #aab; }
+    /* Property dashboard */
+    .an-prop-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+    .an-prop-card { padding: 10px 8px; background: #faf7f5; border-radius: 6px; text-align: center; }
+    .an-prop-card-val { font-size: 20px; font-weight: 800; color: #1a1a1a; }
+    .an-prop-card-label { font-size: 9px; font-weight: 600; text-transform: uppercase; color: #666; margin-top: 2px; }
+    body.dark .an-prop-card { background: rgba(255,255,255,0.06); }
+    body.dark .an-prop-card-val { color: #e8e8e8; }
+    /* Composition bar */
+    .an-comp-bar { height: 20px; border-radius: 4px; overflow: hidden; display: flex; margin: 6px 0 4px; }
+    .an-comp-seg { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: #fff; }
+    .an-comp-seg.res { background: #2563eb; }
+    .an-comp-seg.com { background: #e07830; }
+    .an-comp-legend { display: flex; gap: 12px; font-size: 10px; color: #555; margin-bottom: 8px; }
+    .an-comp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+    /* Valuation mini-cards */
+    .an-val-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 6px 0; }
+    .an-val-card { text-align: center; padding: 8px 4px; background: #faf7f5; border-radius: 5px; }
+    .an-val-card-val { font-size: 16px; font-weight: 800; color: #1a1a1a; }
+    .an-val-card-label { font-size: 9px; color: #666; font-weight: 600; text-transform: uppercase; }
+    body.dark .an-val-card { background: rgba(255,255,255,0.06); }
+    body.dark .an-val-card-val { color: #e8e8e8; }
+    /* Age timeline bar */
+    .an-age-bar { display: flex; gap: 6px; margin: 6px 0; }
+    .an-age-seg { flex: 1; text-align: center; padding: 6px 2px; border-radius: 5px; background: #faf7f5; }
+    .an-age-seg-val { font-size: 14px; font-weight: 800; color: #1a1a1a; }
+    .an-age-seg-label { font-size: 9px; color: #666; font-weight: 600; }
+    body.dark .an-age-seg { background: rgba(255,255,255,0.06); }
+    body.dark .an-age-seg-val { color: #e8e8e8; }
     /* Compact per-county cards (ALICE / FEMA) */
     .cc-card { padding: 8px 10px; background: #faf7f5; border-radius: 5px; margin-bottom: 6px; border-left: 3px solid #a51c30; }
     .cc-card + .cc-card { margin-top: 0; }
