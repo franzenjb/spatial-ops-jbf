@@ -1273,6 +1273,14 @@ async function fetchAndRenderAnalysis(firesIn, sheltsIn, volsIn, tractGeoids, an
     const countyFips = [...new Set(tractGeoids.map(g => g.slice(0, 5)))];
     const countyFilter = `in.(${countyFips.join(",")})`;
     // SVI + NRI: pull from already-loaded in-memory maps (avoids URL-length 400s)
+    // If SVI map isn't loaded yet, fetch it now so population data is available
+    if (!window._sviFullMap || !window._sviFullMap.size) {
+      try {
+        const sviData = await sbFetchAll("svi",
+          `select=fips,rpl_themes,rpl_theme1,rpl_theme2,rpl_theme3,rpl_theme4,e_totpop,e_pov150,e_age65,e_disabl,county,location&st_abbr=eq.${_currentStateAbbr}`);
+        window._sviFullMap = new Map(sviData.map(row => [String(row.fips), row]));
+      } catch (e) { console.warn("SVI fetch for analysis failed:", e); }
+    }
     sviRows = window._sviFullMap
       ? tractGeoids.map(g => window._sviFullMap.get(g)).filter(Boolean)
       : [];
@@ -1467,9 +1475,10 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
 
     <details open class="tp-acc">
       <summary class="tp-section" style="margin-top:0">Population & Response</summary>
-      ${dispPop > 0 ? kv("Estimated population", `<strong>~${num(dispPop)}</strong>${weightedPop && totalPop !== dispPop ? ` <span style="font-size:11px;color:#666">(${validSVI.length} tracts touched: ${num(totalPop)})</span>` : ""}`) : ""}
-      ${dispElderly > 0 ? kv("Age 65+", `<strong>~${num(dispElderly)}</strong>${weightedPop && totalElderly !== dispElderly ? ` <span style="font-size:11px;color:#666">(tracts: ${num(totalElderly)})</span>` : ""}`) : ""}
-      ${dispDisabled > 0 ? kv("Disabled", `<strong>~${num(dispDisabled)}</strong>${weightedPop && totalDisabled !== dispDisabled ? ` <span style="font-size:11px;color:#666">(tracts: ${num(totalDisabled)})</span>` : ""}`) : ""}
+      ${weightedPop && dispPop > 0 ? `<div class="tp-caption" style="text-align:left;margin:0 0 6px;font-size:11px;color:#555">Area-weighted estimate based on ${validSVI.length} census tract${validSVI.length === 1 ? "" : "s"} (tracts avg ~4,000 people)</div>` : ""}
+      ${dispPop > 0 ? kv("Est. population", `<strong>~${num(dispPop)}</strong>${weightedPop && totalPop !== dispPop ? ` <span style="font-size:11px;color:#666">(${num(totalPop)} across full tracts)</span>` : ""}`) : ""}
+      ${dispElderly > 0 ? kv("Est. age 65+", `<strong>~${num(dispElderly)}</strong>`) : ""}
+      ${dispDisabled > 0 ? kv("Est. disabled", `<strong>~${num(dispDisabled)}</strong>`) : ""}
       ${kv("Fires", `<strong>${firesIn.length}</strong> (${noRC} no RC response)`)}
       ${kv("Shelters", `<strong>${sheltsIn.length}</strong>`)}
       ${kv("DAT Volunteers", `<strong>${volsIn.length}</strong>`)}
