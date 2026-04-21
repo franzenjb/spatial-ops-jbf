@@ -1474,22 +1474,23 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     ${hero}
 
     <div class="an-section-head">Population & Response</div>
+    ${weightedPop ? `<div style="font-size:10px;color:#5a7a99;margin:4px 0 0;text-align:center">Area-weighted estimate · ${validSVI.length} census tract${validSVI.length === 1 ? "" : "s"}</div>` : ""}
     ${dispPop > 0 ? `
-    <div class="an-pop-hero">
-      <div class="an-pop-hero-val">~${num(dispPop)}</div>
-      <div class="an-pop-hero-label">Estimated Population</div>
-      ${weightedPop && totalPop !== dispPop ? `<div class="an-pop-hero-sub">${num(totalPop)} across ${validSVI.length} census tracts</div>` : ""}
-    </div>
-    <div class="an-grid-2">
+    <div class="an-grid-3">
+      <div class="an-card" style="border-left-color:#a51c30">
+        <div class="an-card-val" style="color:#a51c30">~${num(dispPop)}</div>
+        <div class="an-card-label">Population</div>
+        ${weightedPop && totalPop !== dispPop ? `<div class="an-card-sub">${num(totalPop)} in tracts</div>` : ""}
+      </div>
       <div class="an-card" style="border-left-color:#e07830">
-        <div class="an-card-val" style="color:#e07830">${dispPop > 0 ? Math.round(dispElderly / dispPop * 100) + '%' : '—'}</div>
+        <div class="an-card-val" style="color:#e07830">~${num(dispElderly)}</div>
         <div class="an-card-label">Age 65+</div>
-        <div class="an-card-sub">~${num(dispElderly)} people</div>
+        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispElderly / dispPop * 100) + '%' : ''}</div>
       </div>
       <div class="an-card" style="border-left-color:#7b6cb7">
-        <div class="an-card-val" style="color:#7b6cb7">${dispPop > 0 ? Math.round(dispDisabled / dispPop * 100) + '%' : '—'}</div>
+        <div class="an-card-val" style="color:#7b6cb7">~${num(dispDisabled)}</div>
         <div class="an-card-label">Disabled</div>
-        <div class="an-card-sub">~${num(dispDisabled)} people</div>
+        <div class="an-card-sub">${dispPop > 0 ? Math.round(dispDisabled / dispPop * 100) + '%' : ''}</div>
       </div>
     </div>
     ` : ""}
@@ -1535,44 +1536,44 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     </div>
     <div class="an-grid-3">
       <div class="an-card" style="border-left-color:#16a34a">
-        <div class="an-card-val" style="color:#16a34a;font-size:20px">${compactMoney(p.avg_assessed)}</div>
+        <div class="an-card-val" style="color:#16a34a">${compactMoney(p.avg_assessed)}</div>
         <div class="an-card-label">Average</div>
       </div>
       <div class="an-card" style="border-left-color:#16a34a">
-        <div class="an-card-val" style="color:#16a34a;font-size:20px">${compactMoney(p.median_assessed)}</div>
+        <div class="an-card-val" style="color:#16a34a">${compactMoney(p.median_assessed)}</div>
         <div class="an-card-label">Median</div>
       </div>
       <div class="an-card" style="border-left-color:#16a34a">
-        <div class="an-card-val" style="color:#16a34a;font-size:20px">${compactMoney(p.total_assessed)}</div>
+        <div class="an-card-val" style="color:#16a34a">${compactMoney(p.total_assessed)}</div>
         <div class="an-card-label">Total</div>
       </div>
     </div>
     <div class="an-grid-3">
       <div class="an-card" style="border-left-color:#d4a020">
-        <div class="an-card-val" style="color:#d4a020;font-size:20px">${num(p.pre_1970)}</div>
+        <div class="an-card-val" style="color:#d4a020">${num(p.pre_1970)}</div>
         <div class="an-card-label">Pre-1970</div>
       </div>
       <div class="an-card" style="border-left-color:#d4a020">
-        <div class="an-card-val" style="color:#d4a020;font-size:20px">${num(p.total_parcels - (p.pre_1970 || 0) - (p.post_2000 || 0))}</div>
+        <div class="an-card-val" style="color:#d4a020">${num(p.total_parcels - (p.pre_1970 || 0) - (p.post_2000 || 0))}</div>
         <div class="an-card-label">1970–2000</div>
       </div>
       <div class="an-card" style="border-left-color:#d4a020">
-        <div class="an-card-val" style="color:#d4a020;font-size:20px">${num(p.post_2000)}</div>
+        <div class="an-card-val" style="color:#d4a020">${num(p.post_2000)}</div>
         <div class="an-card-label">Post-2000</div>
       </div>
     </div>
-    <div style="text-align:center;font-size:11px;color:#333;margin:-2px 0 8px">Avg year built: <strong>${p.avg_year_built}</strong></div>
+    <div style="text-align:center;font-size:10px;color:#555;margin:-2px 0 4px">Avg year built: <strong>${p.avg_year_built}</strong></div>
     <div class="an-grid-3">
       <div class="an-card" style="border-left-color:#5a7a99">
-        <div class="an-card-val" style="color:#5a7a99;font-size:20px">${num(p.avg_sqft)}</div>
+        <div class="an-card-val" style="color:#5a7a99">${num(p.avg_sqft)}</div>
         <div class="an-card-label">Avg Sq Ft</div>
       </div>
       <div class="an-card" style="border-left-color:#5a7a99">
-        <div class="an-card-val" style="color:#5a7a99;font-size:20px">${int(p.total_acres)}</div>
+        <div class="an-card-val" style="color:#5a7a99">${int(p.total_acres)}</div>
         <div class="an-card-label">Acres</div>
       </div>
       <div class="an-card" style="border-left-color:#a51c30">
-        <div class="an-card-val" style="color:#a51c30;font-size:20px">${num(p.over_500k)}</div>
+        <div class="an-card-val" style="color:#a51c30">${num(p.over_500k)}</div>
         <div class="an-card-label">Over $500K</div>
       </div>
     </div>`;

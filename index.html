@@ -630,39 +630,35 @@
     .corr-narrative { font-size: 12px; line-height: 1.5; color: #444; margin: 4px 0 8px; padding: 8px 10px; background: #faf7f5; border-left: 3px solid #a51c30; border-radius: 4px; }
     body.dark .corr-narrative { background: rgba(255,255,255,0.04); color: #ccdaeb; }
     /* ── Analysis dashboard cards (matches county-jbf design language) ─── */
-    .an-section-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #a51c30; margin: 14px 0 2px; padding-bottom: 4px; border-bottom: 2px solid #a51c30; }
+    .an-section-head { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #a51c30; margin: 10px 0 2px; padding-bottom: 3px; border-bottom: 2px solid #a51c30; }
     body.dark .an-section-head { color: #ff5a6e; border-bottom-color: #ff5a6e; }
-    /* Stat cards with colored left border — 2-col or 3-col grid */
-    .an-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
-    .an-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 8px 0; }
-    .an-card { text-align: center; padding: 12px 6px 10px; background: #f8f6f4; border-radius: 6px; border-left: 4px solid #ccc; }
-    .an-card-val { font-size: 26px; font-weight: 800; line-height: 1.1; }
-    .an-card-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #1a1a1a; margin-top: 3px; }
-    .an-card-sub { font-size: 11px; color: #5a7a99; margin-top: 1px; }
+    .an-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 5px 0; }
+    .an-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin: 5px 0; }
+    .an-card { text-align: center; padding: 7px 4px 6px; background: #f8f6f4; border-radius: 5px; border-left: 3px solid #ccc; }
+    .an-card-val { font-size: 18px; font-weight: 800; line-height: 1.1; }
+    .an-card-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; color: #1a1a1a; margin-top: 1px; }
+    .an-card-sub { font-size: 10px; color: #5a7a99; margin-top: 0; }
     body.dark .an-card { background: rgba(255,255,255,0.06); }
     body.dark .an-card-label { color: #ccdaeb; }
     body.dark .an-card-sub { color: #6a8aaa; }
-    /* Population hero — full-width card */
-    .an-pop-hero { text-align: center; padding: 14px 8px 12px; background: #f8f6f4; border-radius: 6px; border-left: 4px solid #a51c30; margin: 8px 0; }
-    .an-pop-hero-val { font-size: 32px; font-weight: 800; color: #a51c30; line-height: 1.1; }
-    .an-pop-hero-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #1a1a1a; margin-top: 2px; }
-    .an-pop-hero-sub { font-size: 11px; color: #5a7a99; margin-top: 2px; }
+    .an-pop-hero { text-align: center; padding: 8px 6px 7px; background: #f8f6f4; border-radius: 5px; border-left: 3px solid #a51c30; margin: 5px 0; }
+    .an-pop-hero-val { font-size: 24px; font-weight: 800; color: #a51c30; line-height: 1.1; }
+    .an-pop-hero-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: #1a1a1a; margin-top: 1px; }
+    .an-pop-hero-sub { font-size: 10px; color: #5a7a99; margin-top: 1px; }
     body.dark .an-pop-hero { background: rgba(255,255,255,0.06); }
     body.dark .an-pop-hero-val { color: #ff5a6e; }
     body.dark .an-pop-hero-label { color: #ccdaeb; }
-    /* Response row — compact inline */
-    .an-response-row { display: flex; gap: 6px; margin: 6px 0 8px; }
-    .an-resp-chip { flex: 1; text-align: center; padding: 8px 4px 6px; background: #f8f6f4; border-radius: 6px; border-left: 3px solid #ccc; }
-    .an-resp-chip-val { font-size: 20px; font-weight: 800; line-height: 1.1; }
-    .an-resp-chip-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #1a1a1a; }
+    .an-response-row { display: flex; gap: 5px; margin: 5px 0 6px; }
+    .an-resp-chip { flex: 1; text-align: center; padding: 5px 3px 4px; background: #f8f6f4; border-radius: 5px; border-left: 3px solid #ccc; }
+    .an-resp-chip-val { font-size: 16px; font-weight: 800; line-height: 1.1; }
+    .an-resp-chip-label { font-size: 9px; font-weight: 700; text-transform: uppercase; color: #1a1a1a; }
     .an-resp-chip-sub { font-size: 9px; color: #a51c30; font-weight: 600; }
     body.dark .an-resp-chip { background: rgba(255,255,255,0.06); }
     body.dark .an-resp-chip-label { color: #ccdaeb; }
-    /* Composition bar */
-    .an-comp-bar { height: 22px; border-radius: 4px; overflow: hidden; display: flex; margin: 6px 0 4px; }
-    .an-comp-seg { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; }
-    .an-comp-legend { display: flex; gap: 14px; font-size: 11px; color: #333; font-weight: 600; margin-bottom: 8px; }
-    .an-comp-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+    .an-comp-bar { height: 18px; border-radius: 4px; overflow: hidden; display: flex; margin: 5px 0 3px; }
+    .an-comp-seg { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: #fff; }
+    .an-comp-legend { display: flex; gap: 12px; font-size: 10px; color: #333; font-weight: 600; margin-bottom: 6px; }
+    .an-comp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
     body.dark .an-comp-legend { color: #ccdaeb; }
     /* Compact per-county cards (ALICE / FEMA) */
     .cc-card { padding: 8px 10px; background: #faf7f5; border-radius: 5px; margin-bottom: 6px; border-left: 3px solid #a51c30; }
