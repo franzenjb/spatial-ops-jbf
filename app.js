@@ -1515,7 +1515,7 @@ function renderCorridorResults(firesIn, sheltsIn, volsIn, sviRows, nriRows, alic
     </div>
     <div class="an-comp-bar">
       <div class="an-comp-seg" style="width:${resPct}%;background:#2563eb">${resPct}%</div>
-      <div class="an-comp-seg" style="width:${comPct}%;background:#e07830">${comPct > 5 ? comPct + '%' : ''}</div>
+      <div class="an-comp-seg" style="width:${Math.max(comPct, 8)}%;background:#e07830">${comPct}%</div>
     </div>
     <div class="an-comp-legend">
       <span><span class="an-comp-dot" style="background:#2563eb"></span>Residential ${num(p.residential)}</span>
